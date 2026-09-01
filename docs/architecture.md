@@ -1,6 +1,6 @@
 # Internal Request Tracker - Architecture Draft
 
-Based on product-spec.md, with its requirements unchanged. The matching diagram is in architecture.excalidraw.
+Based on product-spec.md, with its requirements unchanged. The matching diagram is in architectureDiagram.png .
 
 This is an architecture draft only: no code, no database tables, no endpoint details, no infrastructure.
 
