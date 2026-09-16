@@ -1,0 +1,35 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum RequestStatus {
+  NEW
+  IN_PROGRESS
+  DONE
+}
+
+model ServiceRequest {
+  id          String        @id
+  requesterId String
+  handlerId   String
+  status      RequestStatus @default(NEW)
+  history     StatusEvent[]
+}
+
+model StatusEvent {
+  // Stable ordering even when two events have the same timestamp.
+  sequence  Int            @id @default(autoincrement())
+  id        String         @unique @default(uuid())
+  requestId String
+  status    RequestStatus
+  changedBy String
+  changedAt DateTime       @default(now())
+  request   ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@index([requestId, sequence])
+}

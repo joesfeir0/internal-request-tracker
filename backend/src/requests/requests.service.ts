@@ -1,71 +1,45 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
-import { ALLOWED_TRANSITIONS, REQUEST_STATUSES, RequestStatus, ServiceRequest } from './request-status';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { ALLOWED_TRANSITIONS, RequestStatus, ServiceRequest } from './request-status';
+import { Actor } from './dev-actor';
+import { OwnedRequest, RequestsStore } from './requests.store';
+
+function response(request: OwnedRequest): ServiceRequest {
+  return { id: request.id, status: request.status, history: request.history };
+}
 
 @Injectable()
 export class RequestsService {
-  private readonly requests = new Map<string, ServiceRequest>();
+  constructor(private readonly store: RequestsStore) {}
 
-  constructor() {
-    for (const id of ['REQ-1001', 'REQ-1002', 'REQ-1003']) {
-      this.requests.set(id, {
-        id,
-        status: 'NEW',
-        history: [{
-          id: randomUUID(),
-          requestId: id,
-          status: 'NEW',
-          changedBy: 'seed',
-          changedAt: new Date().toISOString(),
-        }],
-      });
-    }
+  async findAll(actor: Actor): Promise<ServiceRequest[]> {
+    return (await this.store.findAll(actor.id)).map(response);
   }
 
-  findAll(): ServiceRequest[] {
-    return structuredClone([...this.requests.values()]);
+  private async visibleRequest(id: string, actor: Actor): Promise<OwnedRequest> {
+    const request = await this.store.findOne(id);
+    if (!request || (request.requesterId !== actor.id && request.handlerId !== actor.id)) {
+      throw new NotFoundException('Request unavailable or not found.');
+    }
+    return request;
   }
 
-  findOne(id: string): ServiceRequest {
-    const request = this.requests.get(id);
-    if (!request) {
-      throw new NotFoundException(`Request ${id} not found`);
-    }
-    // Callers cannot mutate the stored request or its existing events.
-    return structuredClone(request);
+  async findOne(id: string, actor: Actor): Promise<ServiceRequest> {
+    return response(await this.visibleRequest(id, actor));
   }
 
-  changeStatus(id: string, body: unknown): ServiceRequest {
-    const request = this.findOne(id);
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      throw new BadRequestException('Body must contain status and changedBy');
+  async changeStatus(id: string, target: RequestStatus, actor: Actor): Promise<ServiceRequest> {
+    const request = await this.visibleRequest(id, actor);
+    if (actor.role !== 'handler' || request.handlerId !== actor.id) {
+      throw new ForbiddenException("Only the assigned handler can change this request's status.");
     }
-    const { status, changedBy } = body as Record<string, unknown>;
-    if (typeof status !== 'string' || !REQUEST_STATUSES.includes(status as RequestStatus)) {
-      throw new BadRequestException('status must be NEW, IN_PROGRESS, or DONE');
-    }
-    if (typeof changedBy !== 'string' || changedBy.trim().length === 0) {
-      throw new BadRequestException('changedBy must be a non-empty string');
-    }
-    const target = status as RequestStatus;
     if (!ALLOWED_TRANSITIONS[request.status].includes(target)) {
       throw new ConflictException(`Transition ${request.status} -> ${target} is not allowed`);
     }
-
-    const updated: ServiceRequest = {
-      ...request,
-      status: target,
-      history: [...request.history, {
-        id: randomUUID(),
-        requestId: id,
-        status: target,
-        changedBy: changedBy.trim(),
-        changedAt: new Date().toISOString(),
-      }],
-    };
-    // One synchronous replacement commits status and history together.
-    // No await or separate writes can expose a partially updated request.
-    this.requests.set(id, updated);
-    return structuredClone(updated);
+    try {
+      return response(await this.store.saveStatus(id, request.status, target, actor.id));
+    } catch (error) {
+      if (error instanceof ConflictException) throw error;
+      throw new ServiceUnavailableException('Could not save the status. Please try again.');
+    }
   }
 }

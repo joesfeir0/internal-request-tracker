@@ -1,23 +1,31 @@
 {
   "name": "internal-request-tracker-backend",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Week 2 bounded Service Request lifecycle milestone",
+  "description": "Integrated Service Request status slice",
   "scripts": {
+    "postinstall": "prisma generate",
     "build": "tsc -p tsconfig.json",
     "start": "npm run build && node dist/main.js",
-    "test": "npm run build && node --test test/requests.test.cjs"
+    "test": "npm run build && node --test test/rules.test.cjs test/requests.test.cjs",
+    "test:integration": "npm run build && node --test test/database.test.cjs",
+    "db:setup": "node scripts/database.cjs setup",
+    "db:reset": "node scripts/database.cjs reset"
   },
   "engines": { "node": ">=22" },
   "dependencies": {
     "@nestjs/common": "^11.1.0",
     "@nestjs/core": "^11.1.0",
     "@nestjs/platform-express": "^11.1.0",
+    "@prisma/client": "6.19.3",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "prisma": "6.19.3",
     "typescript": "~5.9.3"
   }
 }
