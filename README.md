@@ -54,7 +54,7 @@ The requester can attempt the action so the backend denial can be demonstrated. 
 
 The UI and API expose all four actors. The backend resolves `X-Actor-Id` to this known list; it never accepts a client role claim or client-supplied `changedBy`.
 
-### Four more examples for the instructor
+### More examples
 
 Select `employee-001` to see all five requests in **Service request**. To advance an example, select its handler below; the request selector then shows only that handler's assigned records. Each record has its own saved status and history.
 
