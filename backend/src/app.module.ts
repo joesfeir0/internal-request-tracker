@@ -1,3 +1,6 @@
+import { IntakeController } from './intake/intake.controller';
+import { IntakeService } from './intake/intake.service';
+import { GeminiClient } from './intake/gemini.client';
 import { BadRequestException, Module, ValidationPipe } from '@nestjs/common';
 import { APP_PIPE } from '@nestjs/core';
 import { RequestsController } from './requests/requests.controller';
@@ -6,8 +9,8 @@ import { RequestsStore } from './requests/requests.store';
 import { DevActorGuard } from './requests/dev-actor';
 
 @Module({
-  controllers: [RequestsController],
-  providers: [RequestsService, RequestsStore, DevActorGuard, {
+  controllers: [RequestsController, IntakeController],
+  providers: [IntakeService, GeminiClient, RequestsService, RequestsStore, DevActorGuard, {
     provide: APP_PIPE,
     useValue: new ValidationPipe({
       whitelist: true, forbidNonWhitelisted: true, transform: true,

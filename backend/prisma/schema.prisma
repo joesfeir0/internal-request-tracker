@@ -16,11 +16,20 @@ enum RequestStatus {
 model ServiceRequest {
   id          String        @id
   requesterId String
-  handlerId   String
+  handlerId   String?
+  department  String        @default("IT")
+  description String        @default("")
+  summary     String        @default("")
+  createdAt   DateTime      @default(now())
+  comments    RequestComment[]
+
+  @@index([department, status])
+  // Keep current status for lists; StatusEvent records each change.
   status      RequestStatus @default(NEW)
   history     StatusEvent[]
 }
 
+// Application actions append events; the demo reset utility can remove them.
 model StatusEvent {
   // Stable ordering even when two events have the same timestamp.
   sequence  Int            @id @default(autoincrement())
@@ -29,7 +38,20 @@ model StatusEvent {
   status    RequestStatus
   changedBy String
   changedAt DateTime       @default(now())
+  // Reset deletes events before their parent request.
   request   ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
 
   @@index([requestId, sequence])
+}
+
+model RequestComment {
+  id        String         @id @default(uuid())
+  requestId String
+  authorId  String
+  message   String
+  createdAt DateTime       @default(now())
+  // Reset deletes replies before their parent request.
+  request   ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@index([requestId, createdAt])
 }

@@ -1,79 +1,84 @@
+// Browser journeys use the real app and a temporary database; only Gemini is mocked.
 import { test, expect } from '@playwright/test';
 import { createRequire } from 'node:module';
-
 const backendRequire = createRequire(new URL('../../backend/package.json', import.meta.url));
 backendRequire('reflect-metadata');
 const { NestFactory } = backendRequire('@nestjs/core');
 const { AppModule } = backendRequire('./dist/app.module');
 const { testDatabase } = backendRequire('./test/database-helper.cjs');
-
 let app: any;
 let database: any;
-test.beforeAll(async () => {
-  database = await testDatabase();
-  app = await NestFactory.create(AppModule, { logger: false });
-  await app.listen(3001, '127.0.0.1');
-});
-test.afterAll(async () => {
-  await app?.close();
-  await database?.cleanup();
-});
+test.beforeAll(async () => { database = await testDatabase(); app = await NestFactory.create(AppModule, { logger: false }); await app.listen(3001, '127.0.0.1'); });
+test.afterAll(async () => { await app?.close(); await database?.cleanup(); });
 
-test('requester is denied; assigned handler saves status and history through reload', async ({ page }) => {
-  await page.goto('/');
+test('existing request tracking still saves assigned-handler status and history', async ({ page }) => {
+  await page.goto('/#requests');
   await expect(page.getByRole('heading', { name: 'REQ-1001' })).toBeVisible();
-  await expect(page.getByLabel('Development actor', { exact: true })).toHaveValue('employee-001');
   await expect(page.getByTestId('current-status')).toHaveText('NEW');
-  await expect(page.getByLabel('Service request', { exact: true }).getByRole('option')).toHaveCount(5);
-  const history = page.getByRole('list', { name: 'Status history' }).getByRole('listitem');
-  await expect(history).toHaveCount(1);
-
-  const denied = page.waitForResponse((response) => response.request().method() === 'PATCH');
-  await page.getByRole('button', { name: 'Start progress' }).click();
-  expect((await denied).status()).toBe(403);
-  await expect(page.getByRole('alert')).toHaveText("Only the assigned handler can change this request's status.");
-  await expect(page.getByTestId('current-status')).toHaveText('NEW');
-  await expect(history).toHaveCount(1);
-
-  await page.getByLabel('Development actor', { exact: true }).selectOption('handler-001');
+  await expect(page.getByRole('button', { name: 'Start progress' })).toHaveCount(0);
+  await page.getByLabel('Testing workspace').selectOption('handler-001');
+  await expect(page.getByRole('heading', { name: 'IT requests' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: /IT inbox/ })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('button', { name: 'Start progress' })).toBeEnabled();
-  const allowed = page.waitForResponse((response) => response.request().method() === 'PATCH');
   await page.getByRole('button', { name: 'Start progress' }).click();
-  expect((await allowed).status()).toBe(200);
   await expect(page.getByTestId('current-status')).toHaveText('IN_PROGRESS');
-  await expect(page.getByRole('status')).toHaveText('Status saved. History updated.');
-  await expect(history).toHaveCount(2);
-  await expect(history.nth(1)).toContainText('IN_PROGRESS');
-  await expect(history.nth(1)).toContainText('handler-001');
-
-  // The additional examples use the same flow and keep independent histories.
-  await page.getByLabel('Development actor', { exact: true }).selectOption('handler-001');
-  await expect(page.getByLabel('Service request', { exact: true })).toBeEnabled();
-  for (const id of ['REQ-1004', 'REQ-1005']) {
-    await page.getByLabel('Service request', { exact: true }).selectOption(id);
-    await expect(page.getByRole('heading', { name: id })).toBeVisible();
-    await expect(page.getByTestId('current-status')).toHaveText('NEW');
-    await page.getByRole('button', { name: 'Start progress' }).click();
-    await expect(page.getByTestId('current-status')).toHaveText('IN_PROGRESS');
-    await expect(history).toHaveCount(2);
-  }
-  for (const [actor, id] of [['handler-002', 'REQ-1002'], ['handler-003', 'REQ-1003']]) {
-    await page.getByLabel('Development actor', { exact: true }).selectOption(actor);
-    await expect(page.getByRole('heading', { name: id })).toBeVisible();
-    await expect(page.getByTestId('current-status')).toHaveText('NEW');
-    await page.getByRole('button', { name: 'Start progress' }).click();
-    await expect(page.getByTestId('current-status')).toHaveText('IN_PROGRESS');
-    await expect(history).toHaveCount(2);
-  }
-
-  await page.getByLabel('Development actor', { exact: true }).selectOption('employee-001');
-  await expect(page.getByLabel('Service request', { exact: true })).toBeEnabled();
-  await page.getByLabel('Service request', { exact: true }).selectOption('REQ-1001');
-  await expect(page.getByTestId('current-status')).toHaveText('IN_PROGRESS');
-  await expect(history).toHaveCount(2);
-
+  await expect(page.getByRole('list', { name: 'Status history' }).getByRole('listitem')).toHaveCount(2);
   await page.reload();
   await expect(page.getByTestId('current-status')).toHaveText('IN_PROGRESS');
-  await expect(history).toHaveCount(2);
-  await expect(history.nth(1)).toContainText('handler-001');
+});
+
+test('AI draft is submitted to HR inbox, claimed and answered; requester sees progress', async ({ page }) => {
+  const { GeminiClient } = backendRequire('./dist/intake/gemini.client');
+  const provider = app.get(GeminiClient);
+  const original = provider.transport;
+  const key = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'browser-test-placeholder';
+  provider.transport = async () => Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ suggestedDepartment: 'HR', summary: 'Employment letter requested.', missingInformation: ['When do you need the letter?'], suggestedNextStep: 'Add the date for HR review.' }) }] } }] });
+  try {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'What do you need help with?' })).toBeVisible();
+    await page.getByRole('textbox', { name: 'Describe your issue' }).fill('I need an employment letter by next Friday.');
+    await page.getByRole('button', { name: 'Get AI suggestion' }).click();
+    await expect(page.getByRole('region', { name: 'AI suggestion' })).toContainText('Employment letter requested.');
+    await expect(page.getByLabel('Draft department')).toHaveValue('HR');
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/department-workflow-mobile.png', fullPage: true });
+    await page.getByRole('button', { name: 'Submit to HR' }).click();
+    const receipt = page.getByText(/Request submitted: REQ-/);
+    await expect(receipt).toBeVisible();
+    const id = (await receipt.textContent())!.match(/REQ-[a-f0-9-]+/)![0];
+    await page.getByRole('button', { name: 'View my requests' }).click();
+    await expect(page.getByRole('heading', { name: id })).toBeVisible();
+    await expect(page.locator('.request-overview')).toContainText('Unassigned');
+    await page.getByLabel('Testing workspace').selectOption('handler-001');
+    await expect(page.getByRole('heading', { name: 'IT requests' })).toBeVisible();
+    await expect(page.locator('.queue-item').filter({ hasText: id })).toHaveCount(0);
+    await page.getByLabel('Testing workspace').selectOption('handler-002');
+    await expect(page.getByRole('heading', { name: 'HR requests' })).toBeVisible();
+    await page.locator('.queue-item').filter({ hasText: id }).click();
+    await expect(page.getByRole('heading', { name: id })).toBeVisible();
+    await page.screenshot({ path: 'test-results/department-inbox-mobile.png', fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 850 });
+    await page.screenshot({ path: 'test-results/department-inbox-desktop.png', fullPage: true });
+    await page.getByRole('button', { name: 'Claim request' }).click();
+    await expect(page.locator('.request-overview')).toContainText('handler-002');
+    await page.getByLabel('Reply to the requester').fill('We can prepare the letter for Friday.');
+    await page.getByRole('button', { name: 'Send reply' }).click();
+    await expect(page.getByRole('list', { name: 'Conversation' })).toContainText('We can prepare the letter for Friday.');
+    await page.getByRole('button', { name: 'Start progress' }).click();
+    await expect(page.getByTestId('current-status')).toHaveText('IN_PROGRESS');
+    await page.getByRole('button', { name: 'Mark done' }).click();
+    await expect(page.getByTestId('current-status')).toHaveText('DONE');
+    await page.getByLabel('Testing workspace').selectOption('employee-001');
+    await page.getByRole('button', { name: 'My requests', exact: true }).click();
+    await page.locator('.queue-item').filter({ hasText: id }).click();
+    await expect(page.getByTestId('current-status')).toHaveText('DONE');
+    await expect(page.getByRole('list', { name: 'Conversation' })).toContainText('We can prepare the letter for Friday.');
+    const saved = await database.prisma.serviceRequest.findUniqueOrThrow({ where: { id }, include: { comments: true, history: true } });
+    expect(saved.department).toBe('HR');
+    expect(saved.handlerId).toBe('handler-002');
+    expect(saved.comments).toHaveLength(1);
+    expect(saved.history).toHaveLength(3);
+  } finally { provider.transport = original; if (key === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = key; }
 });

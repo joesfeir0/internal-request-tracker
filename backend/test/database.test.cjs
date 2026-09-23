@@ -1,3 +1,4 @@
+// Check saved state through a second client, then verify reset after a reply.
 require('reflect-metadata');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -5,6 +6,7 @@ const { PrismaClient } = require('@prisma/client');
 const { RequestsService } = require('../dist/requests/requests.service');
 const { RequestsStore } = require('../dist/requests/requests.store');
 const { testDatabase } = require('./database-helper.cjs');
+const { seed } = require('../scripts/database.cjs');
 
 test('real service persists status and appended history in isolated SQLite', async (t) => {
   const database = await testDatabase();
@@ -33,4 +35,13 @@ test('real service persists status and appended history in isolated SQLite', asy
   assert.equal(saved.history.at(-1).status, 'IN_PROGRESS');
   assert.equal(saved.history.at(-1).changedBy, 'handler-001');
   assert.equal(saved.history.at(-1).requestId, 'REQ-1001');
+
+  await database.prisma.requestComment.create({ data: { requestId: 'REQ-1001', authorId: 'employee-001', message: 'Reply before reset' } });
+  await seed(database.prisma, true);
+  assert.equal(await database.prisma.requestComment.count(), 0);
+  assert.equal(await database.prisma.serviceRequest.count(), 5);
+  assert.equal(await database.prisma.statusEvent.count(), 5);
+  const resetRequest = await read();
+  assert.equal(resetRequest.status, 'NEW');
+  assert.equal(resetRequest.history.length, 1);
 });

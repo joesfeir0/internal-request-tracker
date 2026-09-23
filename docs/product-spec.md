@@ -1,5 +1,7 @@
 # Internal Request Tracker - Product Specification
 
+> The requirements below are the original Week 1 product plan. They include assumptions and features that have not been built yet. The Week 4 update at the end explains the AI intake scope; see week4-production-ai.md for how it was built and tested.
+
 
 ## Problem / Context
 
@@ -29,7 +31,7 @@ Everything beyond these three points is an assumption or an open question.
 
 ## Functional Requirements
 
-These rest on the assumptions below and may change once the open questions are answered.
+These requirements are based on the assumptions below. They may change when the open questions are answered.
 
 1. An employee can send an internal request containing the required information.
 2. The product confirms the request was received and gives it a reference the employee can use to find it again.
@@ -55,10 +57,10 @@ These rest on the assumptions below and may change once the open questions are a
 
 ## Assumptions
 
-Working guesses made so the draft can move forward. Each is a candidate to be corrected.
+These are working guesses that let the draft move forward. Any of them may need to change.
 
 - The product can identify employees and authorized request handlers. Login already exists in the organization.
-- Employees will send requests through this product, not merely use it to view requests sent elsewhere.
+- Employees will send requests through this product, rather than only view requests they sent somewhere else.
 - Each request has exactly one employee as its requester.
 - One department is responsible for a request at a time.
 - One handler is responsible for a request at any given moment.
@@ -72,7 +74,7 @@ Working guesses made so the draft can move forward. Each is a candidate to be co
 
 - Requests must always be tied to an identified employee. Anonymous or shared submissions are not allowed.
 - The history of a request may be added to but not edited or deleted.
-- A request is owned by exactly one department at a time. It cannot be jointly owned.
+- A request is owned by exactly one department at a time. Two departments cannot own the same request at once.
 - Statuses are fixed by the product. Users cannot invent their own status names.
 - The product must fit the organization's existing departments. It cannot require a reorganization.
 - It must follow the organization's privacy and access rules. Those rules are not yet known.
@@ -93,7 +95,7 @@ Working guesses made so the draft can move forward. Each is a candidate to be co
 - Can a request carry file attachments?
 - What happens to open requests when an employee or handler leaves?
 - How many users and requests must the product support?
-- What availability and data retention targets apply?
+- How much uptime is required, and how long should data be kept?
 
 ## Non-Goals
 
@@ -147,3 +149,23 @@ An employee asks Finance for a salary certificate. Finance sets the request to R
 
 **Permission**
 An employee tries to open a colleague's request. They are neither the requester nor a handler for that department, so the product does not show it and displays a clear message.
+
+## Week 4 amendment - AI-assisted request intake
+
+**Why:** employees may not know where an issue belongs or what details a handler needs. The AI has one specific job: use the employee's own words to prepare a suggestion for review. This allows AI for this feature, even though the original plan excluded it.
+
+The requester can describe an issue, request a suggestion, review the suggested department, summary, missing details and next step, then revise the text and try again. Suggestions alone are not saved or submitted. The original Week 4 feature stopped at a preview. The later workflow below adds a separate submit action and department conversations.
+
+IT, HR and FINANCE are the routing values controlled by the backend for now. UNDETERMINED means the department is unclear. A suggestion never gives a user department access or assigns official ownership. The backend allows intake only for the demo requester role. Existing assigned-handler status permissions remain unchanged. The actor selector is not production authentication.
+
+Acceptance criteria: valid input returns a checked preview with four fields. Vague or unclear input leads to a request for more detail. The AI should not ask again for details already supplied. Invalid input is rejected before the provider is called. If the provider fails, the text stays on screen and the user can retry. Editing the input or switching actors clears old suggestions. Saved requests and history stay unchanged whether a suggestion succeeds or fails. The software checks that fields are valid; evaluations and human review check whether the advice is useful.
+
+The intake UI shows supported departments before an AI call and allows an optional draft department selection. The employee keeps control of a manual choice and must choose whether to accept a different AI recommendation. Selection stays local until the employee presses Submit; it is excluded from AI suggestion calls and clears when switching actors. Submit sends the selected department to the backend for validation and request creation. Changing the selection alone does not submit or assign work. Saved request selection belongs to a separate tracking section.
+
+The six decisions about what context to send and who has final authority, the exact API contract and test results are in [Week 4 delivery](week4-production-ai.md). Broader Week 1 requirements remain future scope unless delivered in the Week 3 or Week 4 notes.
+
+The presentation uses separate preparation and tracking views. Preparation follows describe -> generate -> review/correct -> submit, with an optional copy action. Copying only puts text on the local clipboard. Submitting is the separate action that saves it. The optional manual routing controls stay collapsed until needed; the checked suggestion shows the department for review. Actor controls are in the sidebar under Testing workspace. AI generation is optional: manual department selection also allows submission.
+
+## Later implementation note
+
+The later department workflow adds a separate submit action, department inboxes, the ability for handlers to claim requests, and saved replies. See [Department workflow](department-workflow.md); the AI remains advisory.

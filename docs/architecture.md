@@ -1,5 +1,7 @@
 # Internal Request Tracker - Architecture Draft
 
+> This is the original Week 1 architecture draft. The parts that say technology has not been chosen and AI is excluded describe that version. The running product now uses React, NestJS, Prisma and SQLite. The Week 4 update at the end explains the Gemini connection and the checks around its suggestions.
+
 Based on product-spec.md, with its requirements unchanged. The matching diagram is in architectureDiagram.png .
 
 This is an architecture draft only: no code, no database tables, no endpoint details, no infrastructure.
@@ -12,11 +14,11 @@ This draft covers the main components, the system boundary, the important flows,
 
 ## 2. Requirements that shaped the architecture
 
-Only the requirements that forced a structural choice are listed here.
+This section lists only the requirements that affected how the system is organized.
 
 - **R1 - Submitting.** An employee submits a request, and an incomplete one is rejected with a clear message. The app collects the information, but the backend checks it before anything is saved. *(spec FR-1, FR-11)*
 - **R2 - Confirmation.** A saved request gets a reference and a starting status, shown only after storage confirms the save. *(FR-2)*
-- **R3 - Viewing.** An employee lists and opens their own requests and sees status, latest update and history. This needs storage and a protected read path. *(FR-3, FR-4)*
+- **R3 - Viewing.** An employee lists and opens their own requests and sees status, latest update and history. This needs storage and permission checks when reading requests. *(FR-3, FR-4)*
 - **R4 - Handler updates and comments.** A handler sees the requests they are responsible for, takes responsibility, changes status and adds updates. Both sides can comment, so comments need the same permission check. *(FR-5, FR-6, FR-7, FR-8, FR-9)*
 - **R5 - Permissions.** Users must not see or change requests without permission, so every protected action is checked in one place. *(FR-12)*
 - **R6 - Reliable saving.** If the tracker says something was saved, it must not lose it, and both sides must see the same status. *(Reliability)*
@@ -41,7 +43,7 @@ The last three are assumptions from product-spec.md, and I kept them as assumpti
 
 ## 5. Components and responsibilities
 
-**User-Facing App.** Shows forms, lists, request details, history and error messages. It can catch simple input mistakes to help the user, but it is not where permission and request rules are finally checked. It exists because R1 to R4 need a surface.
+**User-Facing App.** Shows forms, lists, request details, history and error messages. It can catch simple input mistakes to help the user, but it is not where permission and request rules are finally checked. R1 to R4 need a screen where users can do these things.
 
 **Request Backend.** Receives every action, checks permission and required information, creates references, applies the request rules, and reads or saves through storage. I kept these together because the rules must be checked in one trusted place. It is one component, not microservices, because nothing in the spec needs that complexity. It exists because of R1, R4, R5 and R8.
 
@@ -72,20 +74,20 @@ Step 3 matters most. Permission depends on information from outside the tracker,
 **Authentication asks who you are.** The Identity Service handles sign-in.
 **Authorization asks what you may do.** The backend checks this before every protected action. The app may hide buttons to help the user, but hiding a button is not security.
 
-Information from a user's device is never trusted on its own. The backend validates required information and allowed changes before saving.
+The backend does not trust information just because it came from a user's device. It checks the required information and whether a change is allowed before saving.
 
-There are two trust boundaries:
+There are two trust boundaries: points where information passes between parts of the system that need to check each other.
 
 1. **User device to tracker.** User input enters the trusted system here. The tracker checks identity, permission and input, and returns only what that user may see.
 2. **Tracker to Identity Service.** Information crosses to an external system the tracker does not control, so its answers are checked before use.
 
-Backend to storage is an internal boundary, not an external one. Users never reach storage directly.
+The connection from the backend to storage stays inside the system. Users never access storage directly.
 
 ## 8. Communication
 
 The app talks to the backend through an API using simple request-and-response communication, and the backend reads and saves through storage. I chose this because users need an immediate answer.
 
-Updates reach the employee by reading: when they open or refresh a request, the app asks the backend for the current status through the same API. Nothing pushes updates to them.
+Updates reach the employee by reading: when they open or refresh a request, the app asks the backend for the current status through the same API. The system does not send updates to the screen automatically.
 
 I looked at the three options from the lecture and none of them fits a requirement here. A webhook is how an outside provider tells us something changed, but every status change is made by a handler through our own backend, so there is nobody outside to notify us. Polling means repeatedly asking for something that may not be ready, but storage always holds the current status. A WebSocket keeps a connection open for live exchange, and status changes here happen minutes or hours apart. product-spec.md never asks the employee to see a change without opening the app, so reading on demand is enough. Endpoint details are implementation work and are not part of this draft.
 
@@ -99,7 +101,7 @@ For each one: who notices, what the user sees, what the safe behavior is.
 - **Storage slow or unavailable on save.** Backend notices. User is told the save did not finish. Never show "saved" when it was not. *(R2, R6)*
 - **Status saved but history entry not.** Backend notices. The user sees nothing unusual, which is what makes this dangerous. Save both or neither. *(R6, R8)*
 - **Two handlers act on the same request.** Backend notices. The second handler is told someone else is already responsible. Only one handler is responsible at a time, so the second action is rejected rather than merged. *(R4, R5)*
-- **App or backend temporarily down.** The failed action reveals it. User sees a temporary error. Already-saved requests stay safe and the user retries. *(R6)*
+- **App or backend temporarily down.** The failed action reveals it. User sees a temporary error. Saved requests stay safe, and the user can try again. *(R6)*
 
 The rule I care about most: **the tracker only says "saved" after storage has actually saved it**, and the status and its history entry are saved together.
 
@@ -113,7 +115,7 @@ Neither is a problem yet, and neither justifies a cache, a queue or extra servic
 
 ## 11. Decisions
 
-**D1 - One backend component.** Rules, updates, history and permission checks need a home. Options: one backend, or separate services. I chose one backend so the rules stay together. It is easier to understand now, and can be split later if there is a real need.
+**D1 - One backend component.** The system needs one place for rules, updates, history and permission checks. Options: one backend, or separate services. I chose one backend so the rules stay together. It is easier to understand now, and can be split later if there is a real need.
 
 **D2 - Use the organization's Identity Service.** The tracker needs to know who is an employee or handler. Options: our own accounts, or the existing sign-in system. I chose the existing one. This avoids duplicate accounts, but sign-in now depends on another system, and the tracker must not skip security when it is down.
 
@@ -123,13 +125,13 @@ Neither is a problem yet, and neither justifies a cache, a queue or extra servic
 
 **D5 - History is only added to.** R8 says history cannot be edited or deleted. Options: let handlers correct earlier entries, or keep every entry. I chose to keep every entry, with no edit or delete for anyone. A mistaken update stays visible and the history grows over time, but the history remains reliable.
 
-**D6 - The backend owns the Identity Service integration.** The tracker has to talk to an external system, and something has to own that boundary. Options: the app calls the Identity Service directly, or the backend owns the connection and the app only ever talks to the backend. I chose the backend. The app then holds no credentials for an external system, and permission is decided in one place rather than in every screen. The cost is that the backend does more work and the app cannot do anything useful while the backend is unreachable. I would make the same choice for any future external system, so this decision is about the boundary, not just about sign-in.
+**D6 - The backend owns the Identity Service integration.** The tracker has to talk to an external system, so one part of the tracker needs to manage that connection. Options: the app calls the Identity Service directly, or the backend owns the connection and the app only ever talks to the backend. I chose the backend. The app then holds no credentials for an external system, and permission is decided in one place rather than in every screen. The cost is that the backend does more work and the app cannot do anything useful while the backend is unreachable. I would use the same approach for future external systems. This decision therefore covers external connections in general, as well as sign-in.
 
 ## 12. Assumptions carried from product-spec.md
 
 The tracker can identify employees and authorized handlers; each request has one requester; one department and one handler are responsible at a time; handlers control the official status; the assumed statuses (New, In Progress, Done, with Rejected and Cancelled as end states) still need confirmation; the requester knows which department to send to; and the product tracks work rather than doing it.
 
-My one architecture assumption: the Identity Service can give the tracker a stable user identity. How permissions are managed is still unknown.
+My one architecture assumption: the Identity Service can give the tracker a user identity that stays consistent. How permissions are managed is still unknown.
 
 ## 13. Traceability
 
@@ -144,10 +146,28 @@ My one architecture assumption: the Identity Service can give the tracker a stab
 
 ## 14. What "done" means here
 
-**Major parts and why.** Three inside the tracker: the app because R1 to R4 need a surface, the backend because R1, R4, R5 and R8 need checks in one trusted place, and storage because R2, R3, R6 and R8 mean information must survive and must not be rewritten.
+**Major parts and why.** Three inside the tracker: the app because R1 to R4 need a screen, the backend because R1, R4, R5 and R8 need checks in one trusted place, and storage because R2, R3, R6 and R8 mean information must survive and must not be rewritten.
 
 **Inside vs outside.** Inside: app, backend, storage. Outside: users, departments, process owner and the Identity Service, which is the real dependency.
 
 **How information moves and where checks matter.** Section 6 traces one request. Checks matter where user input arrives and where the tracker talks to the Identity Service. Both happen in the backend, which is why the rules live there.
 
-**Failures and which requirement caused each decision.** Section 9 lists seven failures with detection, user experience and safe behavior. Section 11 records six decisions, and section 13 links every part back to product-spec.md.
+**Failures and which requirement caused each decision.** Section 9 lists seven failures, who detects them, what the user sees and how the system responds safely. Section 11 records six decisions, and section 13 links every part back to product-spec.md.
+
+## Week 4 amendment - external AI boundary
+
+**Why:** AI intake connects to an external provider. The product cannot control when it is available or trust its answers without checking them. The app now calls POST /requests/intake-suggestion. The existing actor guard checks only the demo identity. The intake service then checks that the user has the requester role.
+
+The intake service passes the employee's text to a Gemini adapter. The adapter sends a small service directory controlled by the backend as trusted context, and keeps the unverified requester text separate. It sends no stored requests, actor IDs or history. The API key stays on the server in environment configuration. The adapter limits the wait time and response size, then reads the provider response and its JSON. The product checks the fields and builds the result that can be shown to the user. React displays that suggestion for review.
+
+The tracker-to-Gemini connection adds another trust boundary. Google receives the entered text and directory. The screen asks for made-up examples because free-tier data use does not let us assume confidential processing. A failed or invalid provider response returns the same 502 message. Request and permission errors keep their own responses.
+
+The intake service has no connection to saved data. Whether a suggestion succeeds or fails, official records stay unchanged. Status can still be changed only through the existing permission checks and status transaction. The frontend cancels calls that are no longer needed and ignores late responses. A suggestion is never carried over when the user switches actors.
+
+A temporary preview does not need a database migration, a department membership system or a system for retrieving stored information. The earlier architectureDiagram.png remains the Week 1 baseline, not a current AI diagram. The current flow and all limits are documented in [Week 4 delivery](week4-production-ai.md).
+
+## Later implementation note
+
+The organizational Identity Service described in the original draft has not been integrated. Current authentication is only a demo actor header. Lists load on startup, actor changes and explicit Refresh request; selecting an already loaded request displays that snapshot without another read. Reloading also fetches current data. There is no polling or live push. Append-only history is enforced by the application API; the local demo reset utility is a separate destructive maintenance operation, not a user permission.
+
+The later workflow adds POST /requests with its own permission checks, shows requests according to department, lets handlers claim a request only when it is unassigned, and saves replies. See [Department workflow](department-workflow.md).

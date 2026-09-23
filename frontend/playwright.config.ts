@@ -3,6 +3,7 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './test',
   testMatch: 'status.e2e.ts',
+  // Tests share one temporary backend and database.
   workers: 1,
   retries: 0,
   use: { baseURL: 'http://127.0.0.1:5174', browserName: 'chromium', trace: 'retain-on-failure' },

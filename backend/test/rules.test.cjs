@@ -30,7 +30,6 @@ test('save failure becomes readable HTTP 503 without false success or fixture mu
   const store = app.get(RequestsStore);
   const before = structuredClone(fixture);
   let attempts = 0;
-  // Test-only replacement at the persistence boundary. No database is opened.
   store.findOne = async () => structuredClone(fixture);
   store.saveStatus = async () => { attempts++; throw new Error('Private database failure details'); };
   await app.listen(0, '127.0.0.1');

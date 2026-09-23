@@ -1,4 +1,5 @@
-// Provisional Week 1 happy path only; final business rules remain open.
+
+// Provisional lifecycle for this assignment; final business rules may differ.
 export const REQUEST_STATUSES = ['NEW', 'IN_PROGRESS', 'DONE'] as const;
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 
@@ -18,6 +19,13 @@ export interface StatusEvent {
 
 export interface ServiceRequest {
   readonly id: string;
+  readonly department: 'IT' | 'HR' | 'FINANCE';
+  readonly requesterId: string;
+  readonly handlerId: string | null;
+  readonly description: string;
+  readonly summary: string;
+  readonly createdAt: string;
+  readonly comments: readonly { id: string; requestId: string; authorId: string; message: string; createdAt: string }[];
   readonly status: RequestStatus;
   readonly history: readonly StatusEvent[];
 }

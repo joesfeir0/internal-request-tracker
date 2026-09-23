@@ -1,5 +1,7 @@
 # Week 3 / v0.3 - Integrated Product Slice
 
+> Historical record: this note describes v0.3 and its verification at that time. Since then, the code, UI, permissions, API responses and automated tests have changed, and the Week 1 documents have received amendments. Test names, walkthroughs, visibility rules and statements that documents were unchanged below describe v0.3; relative code links open today's files. For current setup and test instructions use [README](../README.md), [Week 4 production AI](week4-production-ai.md) and [Department workflow](department-workflow.md).
+
 This work follows **UNDERSTAND -> DIRECT -> PROVE** and **BUILD -> PROTECT -> AUTOMATE**. It adds one complete status-change flow to the existing Internal Request Tracker repository.
 
 A **slice** means one small feature that works through all the parts it needs: the screen, backend, and database. Here, the feature is changing a request's status and saving its history.
@@ -18,7 +20,7 @@ The [product specification](product-spec.md), [architecture](architecture.md), [
 - Only the assigned handler may change the official status. A requester may read their own requests.
 - A rejected change must leave the status and history unchanged. The screen shows success only after the save succeeds.
 
-These status rules are working assumptions for the assignment, not final business rules. Rejected, Cancelled, and reopening a request are not included.
+These status rules are assumptions used for the assignment. They still need to be confirmed as business rules. Rejected, Cancelled, and reopening a request are not included.
 
 ## DIRECT - how the feature works from screen to database
 
@@ -45,11 +47,11 @@ The [Prisma schema](../backend/prisma/schema.prisma) describes two kinds of stor
 
 The [database store](../backend/src/requests/requests.store.ts) saves the status update and new history event in one **Prisma transaction**. A transaction means both changes succeed together, or neither is saved.
 
-Before adding the event, the update checks that the saved status and assigned handler still match the values it expects. This stops an old request from writing over a more recent change. Such an update is called a **stale write**, and it is rejected. There is no API for editing or deleting history.
+Before adding the event, the update checks that the saved status and assigned handler still match the values it expects. This stops an update based on old data from overwriting a newer change. An update based on old data is called a **stale write**. The backend rejects it. There is no API for editing or deleting history.
 
 The default database file is `backend/prisma/dev.db`. Setting `DATABASE_URL` allows a different database location. The [setup utility](../backend/scripts/database.cjs) applies the migration saved in the repository and adds any missing example records. A **migration** is the file that sets up or changes the database structure. **Seeding** means adding starting example data.
 
-Setup does not overwrite existing records. Starting the backend normally does not add seed data or reset anything. Running the explicit demo reset recreates all five requests as NEW, each with one starting history event.
+Setup does not overwrite existing records. Starting the backend normally does not add seed data or reset anything. Running the demo reset command creates all five requests again as NEW, each with one starting history event.
 
 | Request | Requester | Assigned handler |
 | --- | --- | --- |
@@ -71,7 +73,7 @@ An **API contract** describes the input the backend accepts and the response it 
 | `GET /requests/:id` | Actor header and request reference | 200; one request the actor may see |
 | `PATCH /requests/:id/status` | Actor header, reference, and JSON `{ "status": "IN_PROGRESS" }` | 200; the complete updated request after the save succeeds |
 
-The [DTO](../backend/src/requests/change-status.dto.ts) defines the accepted input. Nest's ValidationPipe checks that input. Only the `status` field is allowed, and its value must be supported. Extra fields such as `changedBy` or a claimed role are rejected. The backend fills in history's `changedBy` using the actor it identified.
+The [DTO](../backend/src/requests/change-status.dto.ts) describes the input the backend accepts. Nest's ValidationPipe checks incoming data against that definition. Only the `status` field is allowed, and its value must be supported. Extra fields such as `changedBy` or a claimed role are rejected. The backend fills in history's `changedBy` using the actor it identified.
 
 A successful read or update returns the following structure. The list route returns an array of these objects:
 
@@ -100,7 +102,7 @@ type ServiceRequest = {
 | 409 | The status change is not allowed, or the update is based on old data |
 | 503 | The database save operation failed unexpectedly |
 
-The errors handled on purpose use `{ statusCode, message, error }`. React shows a readable message instead of raw JSON. These are the errors covered by this feature. This does not mean every possible infrastructure problem has been handled.
+The errors this feature handles use `{ statusCode, message, error }`. React shows a readable message instead of raw JSON. These are the errors covered by this feature. This does not mean every possible infrastructure problem has been handled.
 
 ## PROTECT AND AUTOMATE - the seven assignment requirements
 
@@ -125,7 +127,7 @@ The requester can click the action in the UI so the instructor can see the backe
 
 DONE is a valid status name. However, moving straight from NEW to DONE is not allowed: the request must go through IN_PROGRESS first. The service checks the existing [status-change rules](../backend/src/requests/request-status.ts) and returns **409** before saving. The status and every history event stay unchanged.
 
-**How we prove it:** the [HTTP tests](../backend/test/requests.test.cjs) include `NEW -> DONE: 409 and unchanged`. The [integration test](../backend/test/database.test.cjs) also reads the database before and after the rejected action and compares the results. Existing 400 checks cover unsupported input and the client `changedBy` field, which is no longer accepted.
+**How we prove it:** the [HTTP tests](../backend/test/requests.test.cjs) include `NEW -> DONE: 409 and unchanged`. The [integration test](../backend/test/database.test.cjs) also reads the database before and after the rejected action and compares the results. The existing 400 checks test unsupported input and the `changedBy` field sent by the client, which is no longer accepted.
 
 ### 3. One expected failure handled on purpose
 
@@ -143,7 +145,7 @@ React keeps showing the last confirmed request. It removes any old success messa
 
 If the HTTP response is lost, the screen asks the user to refresh instead. In that situation, it cannot know whether the backend saved the change.
 
-**Automated proof:** [rules.test.cjs](../backend/test/rules.test.cjs) contains `save failure becomes readable HTTP 503 without false success or fixture mutation`. Here, **mutation** means changing data. The test replaces the save method with a small fake method, called a **stub**, that throws an error. It checks:
+**Automated proof:** [rules.test.cjs](../backend/test/rules.test.cjs) contains `save failure becomes readable HTTP 503 without false success or fixture mutation`. Here, **mutation** means changing data. The test uses a small replacement method, called a **stub**, that throws an error when asked to save. It checks:
 
 - The real Nest HTTP response has the expected error code and message.
 - The save method was called once.
@@ -152,7 +154,7 @@ If the HTTP response is lost, the screen asks the user to refresh instead. In th
 
 **What this test does not prove:** it checks how a save error becomes a safe HTTP response. It does not make a real database fail halfway through a transaction, and it does not prove database rollback. **Rollback** means undoing the changes in a failed transaction. The actual application uses a Prisma transaction to make the status and history save together.
 
-A separate browser check on 2026-09-14 supplied a controlled 503 response. It confirmed that the saved state stayed visible, old success feedback disappeared, and retry worked. That check is not part of the E2E test stored in the repository. No failure endpoint, code to acquire/release SQLite locks, or external service was added.
+A separate browser check on 2026-09-14 supplied a simulated 503 response. It confirmed that the saved state stayed visible, the old success message disappeared, and retry worked. That check is not part of the E2E test stored in the repository. No endpoint for triggering failures, code for taking or releasing SQLite locks, or external service was added.
 
 ### 4. One automated test for a business rule
 
@@ -160,7 +162,7 @@ A separate browser check on 2026-09-14 supplied a controlled 503 response. It co
 
 The test calls the real RequestsService with employee-001, REQ-1001, and IN_PROGRESS. A small fake store returns information about who owns the request and who handles it. The test checks for a **403** permission error and **zero calls to saveStatus**.
 
-This test does not need a real database. The service still has to read the ownership information before it can decide permission. The test therefore proves that no save is called after denial; it does not claim that no read happens.
+This test does not need a real database. The service still needs to read who owns the request before it can decide whether to allow the action. The test therefore proves that no save is called after denial; it does not claim that no read happens.
 
 ### 5. One integration test between the backend and database
 
@@ -174,7 +176,7 @@ This test uses the real RequestsService, RequestsStore, Prisma, and a separate S
 - Exactly one new history event was added for handler-001 and REQ-1001.
 - Every older event stayed unchanged.
 
-Before that successful change, the same test checks that NEW -> DONE returns 409 and leaves the stored record unchanged. Database access is real, not faked. The test checks what was actually saved instead of trusting only the object returned by the service.
+Before that successful change, the same test checks that NEW -> DONE returns 409 and leaves the stored record unchanged. The test reads and writes a real database. It checks what was actually saved instead of trusting only the object returned by the service.
 
 ### 6. One meaningful E2E test
 
@@ -190,7 +192,7 @@ Playwright runs this path: real browser -> React -> HTTP -> NestJS -> Prisma -> 
 4. Select and advance the four other examples using their assigned handlers. Check that their histories stay separate.
 5. Return to REQ-1001 and reload the page. Check that IN_PROGRESS and its two events are still there.
 
-HTTP responses are not faked in this test. The actor selector is still a teaching tool, not real organizational login. Reloading the page proves that the app reads the saved result again. Keeping data after a backend restart was checked separately.
+This test uses real HTTP responses. The actor selector is still a teaching tool. It does not sign the user into the organization. Reloading the page proves that the app reads the saved result again. Keeping data after a backend restart was checked separately.
 
 ### 7. Regression protection for behavior that already worked
 
@@ -205,7 +207,7 @@ We updated the existing [Week 2 HTTP test file](../backend/test/requests.test.cj
 - Unknown requests are handled, and changing one record does not change the others.
 - Input with a wrong format or unsupported value is rejected.
 
-Some API changes were intentional, so the tests were updated to match them. The actor ID moved from body `changedBy` to the `X-Actor-Id` header. The backend now decides which actor to record in history. Reads return only requests the actor may see. There are now five seed records.
+Some API changes were intentional, so the tests were updated to match them. The actor ID moved from the `changedBy` field in the body to the `X-Actor-Id` header. The backend now decides which actor to record in history. Reads return only requests the actor may see. There are now five seed records.
 
 The old requirement to send an actor label in the body was replaced because it no longer matches the API. The authorization tests cover new behavior. The existing status and history checks protect the behavior that already worked in Week 2.
 
@@ -243,7 +245,7 @@ The count of 16 includes the outer HTTP test as well as its 13 smaller tests.
 
 - **2026-09-14 setup:** dependencies were installed cleanly in the existing working directory. Database setup/reset, both builds, and both normal servers worked. This was not a fresh Git checkout.
 - **2026-09-14 restart check:** start with NEW, save IN_PROGRESS, stop the backend, run `npm start` again, and GET the record. The status and both events were identical after restart, including their IDs, actors, times, and order.
-- **2026-09-14 screen failure check:** a controlled 503 kept the last confirmed state visible, removed old success feedback, and allowed retry after the controlled response was removed.
+- **2026-09-14 screen failure check:** a simulated 503 kept the last confirmed state visible, removed the old success message, and allowed retry after the simulated response was removed.
 - **2026-09-15 examples:** seeding added missing records without changing existing requests or history. Builds and the expanded browser journey passed. Development records can change later as the instructor tries them.
 
 README has the verified installation, setup/reset, server, build, manual HTTP, and test commands. Editing this document does not reset the demo database.
@@ -253,5 +255,5 @@ README has the verified installation, setup/reset, server, build, manual HTTP, a
 - The development actor header is not production authentication. Anyone can select a known actor ID. The organization's Identity Service has not been connected.
 - Status names, seeded ownership, and handler assignments are assumptions for this milestone. Department-wide permissions, changing assignments, accounts, comments, and creating requests are not implemented.
 - Prisma is fixed at version 6.19.3 to work with the existing CommonJS backend. On Windows, setup first opens a missing SQLite file through Prisma, then runs migrations. This handles the setup problem seen during verification. The Prisma client is generated during installation. Builds therefore do not replace a DLL file that a running backend is using.
-- The last dependency audit reported six high-severity findings in the Nest/Multer and Prisma configuration dependency chains, and zero for the frontend. These problems were not fixed or checked again during this document edit. No forced major-version updates were made.
+- The last dependency audit reported six high-severity findings in the Nest/Multer and Prisma configuration dependency chains, and zero for the frontend. This document edit did not fix those problems or check them again. No major-version updates were forced.
 - No external integration, production login, cloud database, Docker, microservices, queues, runtime AI, RAG, MCP, CI/CD, deployment, or monitoring was added.

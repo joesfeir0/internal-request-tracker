@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Patch, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { RequestsService } from './requests.service';
 import { ChangeStatusDto } from './change-status.dto';
 import { ActorRequest, DevActorGuard } from './dev-actor';
 
 @Controller('requests')
+// This guard resolves a demo actor from X-Actor-Id; it does not verify identity.
 @UseGuards(DevActorGuard)
 export class RequestsController {
   constructor(private readonly requests: RequestsService) {}
@@ -13,10 +14,19 @@ export class RequestsController {
     return this.requests.findAll(request.actor);
   }
 
+  @Post()
+  create(@Req() request: ActorRequest, @Body() body: unknown) { return this.requests.create(request.actor, body); }
+
   @Get(':id')
   findOne(@Param('id') id: string, @Req() request: ActorRequest) {
     return this.requests.findOne(id, request.actor);
   }
+
+  @Post(':id/claim')
+  claim(@Param('id') id: string, @Req() request: ActorRequest) { return this.requests.claim(id, request.actor); }
+
+  @Post(':id/comments')
+  addComment(@Param('id') id: string, @Body() body: unknown, @Req() request: ActorRequest) { return this.requests.addComment(id, request.actor, body); }
 
   @Patch(':id/status')
   changeStatus(@Param('id') id: string, @Body() body: ChangeStatusDto, @Req() request: ActorRequest) {

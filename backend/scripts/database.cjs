@@ -1,11 +1,12 @@
 const { spawnSync } = require('node:child_process');
+const { existsSync } = require('node:fs');
 const { resolve } = require('node:path');
 const { PrismaClient } = require('@prisma/client');
 
 const developmentUrl = `file:${resolve(__dirname, '../prisma/dev.db').replaceAll('\\', '/')}`;
 
 async function migrate(url) {
-  // Create a missing SQLite file through Prisma before invoking the migration CLI.
+  // Prisma needs the SQLite file to exist before applying migrations.
   const connection = new PrismaClient({ datasourceUrl: url });
   try { await connection.$connect(); } finally { await connection.$disconnect(); }
   const result = spawnSync(process.execPath, [require.resolve('prisma/build/index.js'), 'migrate', 'deploy'], {
@@ -18,17 +19,20 @@ async function migrate(url) {
 
 async function seed(prisma, reset = false) {
   await prisma.$transaction(async (tx) => {
-    // Explicit reset is for demo/test data only. Normal startup never calls it.
     if (reset) {
+      // Delete child rows first to satisfy the request foreign keys.
+      await tx.requestComment.deleteMany();
       await tx.statusEvent.deleteMany();
       await tx.serviceRequest.deleteMany();
     }
     for (let number = 1; number <= 5; number++) {
       const id = `REQ-100${number}`;
       await tx.serviceRequest.upsert({
+        // Setup leaves existing demo requests and their history untouched.
         where: { id }, update: {},
         create: {
-          id, requesterId: 'employee-001', handlerId: `handler-00${number <= 3 ? number : 1}`, status: 'NEW',
+          id, requesterId: 'employee-001', handlerId: `handler-00${number <= 3 ? number : 1}`,
+          department: number === 2 ? 'HR' : number === 3 ? 'FINANCE' : 'IT', status: 'NEW',
           history: { create: { status: 'NEW', changedBy: 'seed' } },
         },
       });
@@ -39,6 +43,8 @@ async function seed(prisma, reset = false) {
 async function main() {
   const action = process.argv[2];
   if (!['setup', 'reset'].includes(action)) throw new Error('Use setup or reset');
+  const envFile = resolve(__dirname, '../.env');
+  if (existsSync(envFile)) process.loadEnvFile(envFile);
   const url = process.env.DATABASE_URL || developmentUrl;
   await migrate(url);
   const prisma = new PrismaClient({ datasourceUrl: url });

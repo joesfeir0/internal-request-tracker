@@ -1,3 +1,4 @@
+// HTTP checks for status transitions and actor permissions.
 require('reflect-metadata');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -12,6 +13,7 @@ test('HTTP lifecycle and status-history invariant', async (t) => {
   t.after(async () => { await app.close(); await database.cleanup(); });
   const base = await app.getUrl();
   const path = '/requests/REQ-1001';
+
   async function readAll() {
     const response = await fetch(`${base}/requests`, { headers: { 'X-Actor-Id': 'employee-001' } });
     assert.equal(response.status, 200);

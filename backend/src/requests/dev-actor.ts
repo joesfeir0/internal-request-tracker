@@ -1,11 +1,11 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 
-// Teaching identities only. A header is not production authentication.
+// Fixed demo identities. A caller can choose one by header; this is not real login.
 const actors = [
-  { id: 'employee-001', role: 'requester' },
-  { id: 'handler-001', role: 'handler' },
-  { id: 'handler-002', role: 'handler' },
-  { id: 'handler-003', role: 'handler' },
+  { id: 'employee-001', role: 'requester', department: null },
+  { id: 'handler-001', role: 'handler', department: 'IT' },
+  { id: 'handler-002', role: 'handler', department: 'HR' },
+  { id: 'handler-003', role: 'handler', department: 'FINANCE' },
 ] as const;
 export type Actor = (typeof actors)[number];
 export interface ActorRequest { actor: Actor; headers: Record<string, string | string[] | undefined> }

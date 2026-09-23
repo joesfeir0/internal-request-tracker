@@ -1,18 +1,22 @@
 {
   "name": "internal-request-tracker-backend",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "Integrated Service Request status slice",
+  "description": "Service request tracking with advisory AI intake",
   "scripts": {
     "postinstall": "prisma generate",
     "build": "tsc -p tsconfig.json",
     "start": "npm run build && node dist/main.js",
-    "test": "npm run build && node --test test/rules.test.cjs test/requests.test.cjs",
+    "test": "npm run build && node --test test/rules.test.cjs test/requests.test.cjs test/intake.test.cjs test/department-workflow.test.cjs",
     "test:integration": "npm run build && node --test test/database.test.cjs",
     "db:setup": "node scripts/database.cjs setup",
-    "db:reset": "node scripts/database.cjs reset"
+    "db:reset": "node scripts/database.cjs reset",
+    "eval:ai": "npm run build && node eval/run.cjs",
+    "eval:ai:live": "npm run build && node eval/run.cjs --live"
   },
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "@nestjs/common": "^11.1.0",
     "@nestjs/core": "^11.1.0",

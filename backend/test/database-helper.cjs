@@ -13,7 +13,7 @@ async function testDatabase() {
     await prisma.$disconnect();
     if (previousUrl === undefined) delete process.env.DATABASE_URL;
     else process.env.DATABASE_URL = previousUrl;
-    // Remove only the temporary directory this helper created.
+    // Guard recursive cleanup against an unexpected path.
     if (dirname(resolve(directory)) !== resolve(tmpdir()) || !basename(directory).startsWith('request-tracker-test-')) {
       throw new Error('Refusing cleanup outside the test temporary directory');
     }
