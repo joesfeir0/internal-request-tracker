@@ -39,7 +39,7 @@ export class GeminiClient {
       await delay(500, undefined, { signal });
       response = await this.transport(url, options);
     }
-    if (!response.ok) { await response.body?.cancel(); throw new Error('Provider unavailable'); }
+    if (!response.ok) { await response.body?.cancel(); throw new Error(`Provider unavailable (HTTP ${response.status})`); }
     if (!response.body) throw new Error('Missing provider response');
     // Limit the entire response before parsing JSON.
     const reader = response.body.getReader();

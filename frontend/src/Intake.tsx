@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { submitRequest, suggestIntake, type IntakeCandidate, type ServiceRequest } from './api';
+import { submitRequest, suggestIntake, type Department, type IntakeCandidate, type ServiceRequest } from './api';
 
-export function Intake({ actor, onSubmitted }: { actor: string; onSubmitted: (request: ServiceRequest) => void }) {
+export function Intake({ actor, canSubmit, onSubmitted }: { actor: string; canSubmit: boolean; onSubmitted: (request: ServiceRequest) => void }) {
   const [text, setText] = useState('');
   const [candidate, setCandidate] = useState<IntakeCandidate | null>(null);
   const [department, setDepartment] = useState<IntakeCandidate['suggestedDepartment'] | ''>('');
   const [manualDepartment, setManualDepartment] = useState(false);
+  // The manual department choice opens by itself when AI cannot help.
+  const [manualOpen, setManualOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [copyMessage, setCopyMessage] = useState('');
@@ -29,14 +31,14 @@ export function Intake({ actor, onSubmitted }: { actor: string; onSubmitted: (re
         if (!manualDepartment) setDepartment(result.suggestedDepartment);
       }
     } catch (cause) {
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not get a suggestion. Try again.');
+      if (!controller.signal.aborted) { setError(cause instanceof Error ? cause.message : 'Could not get a suggestion. Try again.'); setManualOpen(true); }
     } finally { if (!controller.signal.aborted) setBusy(false); }
   }
   async function submit() {
     if (!text.trim() || !['IT', 'HR', 'FINANCE'].includes(department) || submitting || submitted) return;
     setSubmitting(true); setError('');
     try {
-      const saved = await submitRequest(actor, text.trim(), (candidate?.summary || text.trim()).slice(0, 600), department as 'IT' | 'HR' | 'FINANCE');
+      const saved = await submitRequest(actor, text.trim(), (candidate?.summary || text.trim()).slice(0, 600), department as Department);
       setSubmitted(saved);
       onSubmitted(saved);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not submit the request.'); }
@@ -49,7 +51,7 @@ export function Intake({ actor, onSubmitted }: { actor: string; onSubmitted: (re
       setCopyMessage('Draft copied. Nothing submitted.');
     } catch { setCopyMessage('Could not copy. Select and copy the draft text instead.'); }
   }
-  if (actor !== 'employee-001') return <section className="empty-access"><h2>Prepare a request</h2><p>Select the requester to prepare an issue. You can switch identity using the demo menu above.</p></section>;
+  if (!canSubmit) return <section className="empty-access"><h2>Prepare a request</h2><p>Select the requester to prepare an issue. You can switch identity using the demo menu above.</p></section>;
   return <div className="intake">
     <div className="page-heading"><div><p className="eyebrow">AI-ASSISTED INTAKE</p><h2>What do you need help with?</h2><p>Describe the problem, review the suggested team, then submit the request.</p></div><span className="draft-tag">Draft workspace</span></div>
     <div className="intake-layout">
@@ -65,7 +67,7 @@ export function Intake({ actor, onSubmitted }: { actor: string; onSubmitted: (re
               if (!manualDepartment) setDepartment('');
             }} />
           <div className="field-meta"><small id="issue-help">Include what happened and when it started.</small><small>{text.length}/4000</small></div>
-          <details className="optional-department">
+          <details className="optional-department" open={manualOpen} onToggle={(event) => setManualOpen(event.currentTarget.open)}>
             <summary>Already know the department? <span>Optional</span></summary>
             {!candidate && <DepartmentSelect value={department} busy={busy} onChange={(value) => { setDepartment(value); setManualDepartment(value !== ''); }} />}
             {candidate && <p>Review or change the department in your draft.</p>}
@@ -73,7 +75,7 @@ export function Intake({ actor, onSubmitted }: { actor: string; onSubmitted: (re
           <div className="compose-actions"><button disabled={busy || !text.trim()} type="submit">{busy ? 'Preparing draft…' : 'Get AI suggestion'}<span aria-hidden="true"> →</span></button></div>
           <small className="privacy-note">Sent to Google Gemini. Use fictional examples; leave out passwords and confidential details.</small>
         </form>
-        {error && <div className="error" role="alert"><strong>We couldn't prepare the draft.</strong><p>{error} Your text has been kept. Try again when you're ready.</p></div>}
+        {error && <div className="error" role="alert"><strong>AI could not prepare a draft.</strong><p>{error}</p><p>Your text has been kept. You can still submit without AI: choose the department under “Already know the department?” above.</p></div>}
         <div className="department-guide" aria-label="Supported departments"><span>Teams we can suggest</span><p><strong>IT</strong> Devices, software &amp; access</p><p><strong>HR</strong> Leave, letters &amp; policies</p><p><strong>Finance</strong> Expenses, invoices &amp; payments</p></div>
       </section>
       <section className={`review-panel ${candidate ? 'has-candidate' : ''}`} aria-labelledby="review-title" aria-busy={busy}>

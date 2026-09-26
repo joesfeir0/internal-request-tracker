@@ -6,7 +6,7 @@ const { NestFactory } = require('@nestjs/core');
 const { AppModule } = require('../dist/app.module');
 const { GeminiClient } = require('../dist/intake/gemini.client');
 const { INTAKE_CONTEXT, validateCandidate } = require('../dist/intake/intake-contract');
-const { INTAKE_FAILURE } = require('../dist/intake/intake.service');
+const { INTAKE_FAILURE, INTAKE_LIMITED } = require('../dist/intake/intake.service');
 const { testDatabase } = require('./database-helper.cjs');
 const candidate = { suggestedDepartment: 'IT', summary: 'The employee reports laptop shutdowns.', missingInformation: ['When did it start?'], suggestedNextStep: 'Add the start date for IT review.' };
 const envelope = (value = candidate) => ({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(value) }] } }] });
@@ -48,7 +48,10 @@ test('intake HTTP boundary, bounded provider context, permissions and real DB im
   const database = await testDatabase();
   const previous = process.env.GEMINI_API_KEY;
   process.env.GEMINI_API_KEY = 'test-only-key';
+  // This test calls the provider many times on purpose; the rate limit has its own test.
+  process.env.AI_REQUESTS_PER_MINUTE = '100';
   const app = await NestFactory.create(AppModule, { logger: false });
+  delete process.env.AI_REQUESTS_PER_MINUTE;
   await app.listen(0, '127.0.0.1');
   t.after(async () => {
     await app.close(); await database.cleanup();
@@ -116,4 +119,29 @@ test('intake HTTP boundary, bounded provider context, permissions and real DB im
     assert.equal(response.status, 502); assert.deepEqual(await response.json(), expected);
     assert.deepEqual(await snapshot(), before);
   });
+});
+
+test('AI calls are rate limited per client before reaching the provider', async (t) => {
+  const database = await testDatabase();
+  const previous = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'test-only-key';
+  process.env.AI_REQUESTS_PER_MINUTE = '2';
+  const app = await NestFactory.create(AppModule, { logger: false });
+  delete process.env.AI_REQUESTS_PER_MINUTE;
+  await app.listen(0, '127.0.0.1');
+  t.after(async () => {
+    await app.close(); await database.cleanup();
+    if (previous === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = previous;
+  });
+  let calls = 0;
+  app.get(GeminiClient).transport = async () => { calls++; return Response.json(envelope()); };
+  const url = `${await app.getUrl()}/requests/intake-suggestion`;
+  const post = body => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Actor-Id': 'employee-001' }, body: JSON.stringify(body) });
+  // Invalid input does not use up the allowance.
+  assert.equal((await post({ text: '' })).status, 400);
+  for (let attempt = 0; attempt < 2; attempt++) assert.equal((await post({ text: 'Laptop issue' })).status, 200);
+  const limited = await post({ text: 'Laptop issue' });
+  assert.equal(limited.status, 429);
+  assert.equal((await limited.json()).message, INTAKE_LIMITED);
+  assert.equal(calls, 2);
 });

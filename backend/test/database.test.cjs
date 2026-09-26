@@ -8,7 +8,7 @@ const { RequestsStore } = require('../dist/requests/requests.store');
 const { testDatabase } = require('./database-helper.cjs');
 const { seed } = require('../scripts/database.cjs');
 
-test('real service persists status and appended history in isolated SQLite', async (t) => {
+test('real service persists status and appended history in an isolated PostgreSQL schema', async (t) => {
   const database = await testDatabase();
   const store = new RequestsStore();
   const reader = new PrismaClient({ datasourceUrl: database.url });

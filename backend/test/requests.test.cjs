@@ -5,6 +5,8 @@ const assert = require('node:assert/strict');
 const { NestFactory } = require('@nestjs/core');
 const { AppModule } = require('../dist/app.module');
 const { testDatabase } = require('./database-helper.cjs');
+// Views differ only in the viewer's allowed actions; compare the stored request itself.
+const stored = ({ allowedActions, ...request }) => request;
 
 test('HTTP lifecycle and status-history invariant', async (t) => {
   const database = await testDatabase();
@@ -53,7 +55,7 @@ test('HTTP lifecycle and status-history invariant', async (t) => {
     assert.ok(Date.parse(event.changedAt) >= started);
     assert.ok(Date.parse(event.changedAt) <= Date.now());
     assert.equal(new Set(after.history.map((item) => item.id)).size, after.history.length);
-    assert.deepEqual(await read(), after);
+    assert.deepEqual(stored(await read()), stored(after));
   }
 
   await t.test('list contains five independent NEW seeded requests', async () => {
@@ -125,7 +127,7 @@ test('HTTP lifecycle and status-history invariant', async (t) => {
     const after = await readAll();
     assert.deepEqual(after[0], before[0]);
     assert.deepEqual(after[2], before[2]);
-    assert.deepEqual(after[1], updated);
+    assert.deepEqual(stored(after[1]), stored(updated));
     assert.equal(updated.status, 'IN_PROGRESS');
     assert.equal(updated.history.length, 2);
     assert.deepEqual(updated.history[0], before[1].history[0]);

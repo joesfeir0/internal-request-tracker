@@ -1,7 +1,5 @@
 import { ConflictException, Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
-import { resolve } from 'node:path';
 import { RequestStatus, ServiceRequest } from './request-status';
 import { Actor } from './dev-actor';
 
@@ -19,13 +17,29 @@ function toRequest(row: StoredRequest): OwnedRequest {
   };
 }
 
+// Refuse to start without an explicit database rather than silently using another one.
+function requiredDatabaseUrl(): string {
+  const url = process.env.DATABASE_URL?.trim();
+  if (!url) throw new Error('DATABASE_URL is not set. Configure the PostgreSQL connection before starting the backend.');
+  return url;
+}
+
+// Raw SQL does not follow Prisma's ?schema= setting, so name the sequence with its schema explicitly.
+function ticketSequence(url: string): string {
+  const schema = new URL(url).searchParams.get('schema') || 'public';
+  if (!/^[A-Za-z0-9_]+$/.test(schema)) throw new Error('Unsupported database schema name');
+  return `"${schema}"."request_number_seq"`;
+}
+
 @Injectable()
 export class RequestsStore implements OnModuleDestroy {
-  private readonly prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL || `file:${resolve(__dirname, '../../prisma/dev.db').replaceAll('\\', '/')}` });
+  private readonly url = requiredDatabaseUrl();
+  private readonly prisma = new PrismaClient({ datasourceUrl: this.url });
+  private readonly sequence = ticketSequence(this.url);
 
   async findAll(actor: Actor): Promise<OwnedRequest[]> {
     const where = actor.role === 'handler' ? { department: actor.department } : { requesterId: actor.id };
-    const rows = await this.prisma.serviceRequest.findMany({ where, include: withDetails, orderBy: { id: 'asc' } });
+    const rows = await this.prisma.serviceRequest.findMany({ where, include: withDetails, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
     return rows.map(toRequest);
   }
 
@@ -35,12 +49,15 @@ export class RequestsStore implements OnModuleDestroy {
   }
 
   async create(description: string, summary: string, department: ServiceRequest['department'], requesterId: string): Promise<OwnedRequest> {
-    const id = `REQ-${randomUUID()}`;
-    const row = await this.prisma.serviceRequest.create({
-      data: { id, requesterId, department, description, summary,
-        history: { create: { status: 'NEW', changedBy: requesterId } } }, include: withDetails,
+    return this.prisma.$transaction(async tx => {
+      // The database sequence gives each ticket a short, unique number.
+      const [{ next }] = await tx.$queryRaw<{ next: bigint }[]>`SELECT nextval(${this.sequence}::regclass) AS next`;
+      const row = await tx.serviceRequest.create({
+        data: { id: `REQ-${next}`, requesterId, department, description, summary,
+          history: { create: { status: 'NEW', changedBy: requesterId } } }, include: withDetails,
+      });
+      return toRequest(row);
     });
-    return toRequest(row);
   }
 
   async claim(id: string, department: ServiceRequest['department'], actorId: string): Promise<OwnedRequest> {
@@ -59,15 +76,18 @@ export class RequestsStore implements OnModuleDestroy {
     });
   }
 
-  async saveStatus(id: string, previous: RequestStatus, status: RequestStatus, actorId: string): Promise<OwnedRequest> {
-    // The status and its history event commit together; a stale update returns 409.
+  async saveStatus(id: string, previous: RequestStatus, status: RequestStatus, actorId: string, note?: string): Promise<OwnedRequest> {
+    // The status, its history event and any note commit together; a stale update returns 409.
     return this.prisma.$transaction(async tx => {
       const result = await tx.serviceRequest.updateMany({ where: { id, status: previous, handlerId: actorId }, data: { status } });
       if (result.count !== 1) throw new ConflictException('Request changed. Refresh and try again.');
       await tx.statusEvent.create({ data: { requestId: id, status, changedBy: actorId } });
+      if (note) await tx.requestComment.create({ data: { requestId: id, authorId: actorId, message: note } });
       return toRequest(await tx.serviceRequest.findUniqueOrThrow({ where: { id }, include: withDetails }));
     });
   }
+
+  async ping() { await this.prisma.$queryRaw`SELECT 1`; }
 
   async onModuleDestroy() { await this.prisma.$disconnect(); }
 }

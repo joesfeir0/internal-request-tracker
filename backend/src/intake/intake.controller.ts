@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
 import { ActorRequest, DevActorGuard } from '../requests/dev-actor';
+import { clientKey } from '../rate-limit';
 import { IntakeService } from './intake.service';
 
 @Controller('requests/intake-suggestion')
@@ -9,6 +10,6 @@ export class IntakeController {
   @Post()
   @HttpCode(200)
   suggest(@Req() request: ActorRequest, @Body() body: unknown) {
-    return this.intake.suggest(request.actor, body);
+    return this.intake.suggest(request.actor, body, clientKey(request));
   }
 }

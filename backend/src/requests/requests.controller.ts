@@ -2,10 +2,11 @@ import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nest
 import { RequestsService } from './requests.service';
 import { ChangeStatusDto } from './change-status.dto';
 import { ActorRequest, DevActorGuard } from './dev-actor';
+import { WriteRateGuard } from '../rate-limit';
 
 @Controller('requests')
 // This guard resolves a demo actor from X-Actor-Id; it does not verify identity.
-@UseGuards(DevActorGuard)
+@UseGuards(DevActorGuard, WriteRateGuard)
 export class RequestsController {
   constructor(private readonly requests: RequestsService) {}
 
@@ -30,6 +31,6 @@ export class RequestsController {
 
   @Patch(':id/status')
   changeStatus(@Param('id') id: string, @Body() body: ChangeStatusDto, @Req() request: ActorRequest) {
-    return this.requests.changeStatus(id, body.status, request.actor);
+    return this.requests.changeStatus(id, body.status, request.actor, body.note);
   }
 }

@@ -1,9 +1,11 @@
 
 export type RequestStatus = 'NEW' | 'IN_PROGRESS' | 'DONE';
+export type Department = 'IT' | 'HR' | 'FINANCE';
+export interface Actor { id: string; name: string; role: 'requester' | 'handler'; department: Department | null }
 export interface ServiceRequest {
   id: string;
   status: RequestStatus;
-  department: 'IT' | 'HR' | 'FINANCE';
+  department: Department;
   requesterId: string;
   handlerId: string | null;
   description: string;
@@ -17,16 +19,27 @@ export interface ServiceRequest {
     changedBy: string;
     changedAt: string;
   }[];
+  // Decided by the server's permission policy for the current actor.
+  allowedActions: { claim: boolean; comment: boolean; nextStatus: RequestStatus | null };
 }
 
-async function callApi(actor: string, path: string, options: { status?: RequestStatus; signal?: AbortSignal } = {}) {
+export async function listActors(): Promise<Actor[]> {
+  let response: Response;
+  try { response = await fetch('/actors'); }
+  catch { throw new Error('Could not reach the service. It may be waking up; try again in a minute.'); }
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(body)) throw new Error('Could not load the demo accounts. Try again in a minute.');
+  return body;
+}
+
+async function callApi(actor: string, path: string, options: { status?: RequestStatus; note?: string; signal?: AbortSignal } = {}) {
   const saving = options.status !== undefined;
   let response: Response;
   try {
     response = await fetch(path, {
       method: saving ? 'PATCH' : 'GET',
       headers: { 'Content-Type': 'application/json', 'X-Actor-Id': actor },
-      body: saving ? JSON.stringify({ status: options.status }) : undefined,
+      body: saving ? JSON.stringify(options.note ? { status: options.status, note: options.note } : { status: options.status }) : undefined,
       signal: options.signal,
     });
   } catch (error) {
@@ -45,7 +58,7 @@ async function callApi(actor: string, path: string, options: { status?: RequestS
   return body;
 }
 
-export async function requestApi(actor: string, id: string, options: { status?: RequestStatus; signal?: AbortSignal } = {}): Promise<ServiceRequest> {
+export async function requestApi(actor: string, id: string, options: { status?: RequestStatus; note?: string; signal?: AbortSignal } = {}): Promise<ServiceRequest> {
   const body = await callApi(actor, `/requests/${encodeURIComponent(id)}${options.status ? '/status' : ''}`, options);
   if (!body || !Array.isArray(body.history)) throw new Error('Could not read the response. Refresh the request.');
   return body;
@@ -58,7 +71,7 @@ export async function listRequests(actor: string, signal?: AbortSignal): Promise
 }
 
 export interface IntakeCandidate {
-  suggestedDepartment: 'IT' | 'HR' | 'FINANCE' | 'UNDETERMINED';
+  suggestedDepartment: Department | 'UNDETERMINED';
   summary: string;
   missingInformation: string[];
   suggestedNextStep: string;
@@ -95,7 +108,7 @@ async function postRequest(actor: string, path: string, body: unknown): Promise<
   if (!value || typeof value.id !== 'string' || !Array.isArray(value.history)) throw new Error('Could not read the saved request. Refresh the page.');
   return value;
 }
-export function submitRequest(actor: string, description: string, summary: string, department: 'IT' | 'HR' | 'FINANCE') {
+export function submitRequest(actor: string, description: string, summary: string, department: Department) {
   return postRequest(actor, '/requests', { description, summary, department });
 }
 export function claimRequest(actor: string, id: string) {

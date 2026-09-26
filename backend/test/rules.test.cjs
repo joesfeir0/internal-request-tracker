@@ -25,6 +25,8 @@ test('requester is denied before persistence mutation', async () => {
 });
 
 test('save failure becomes readable HTTP 503 without false success or fixture mutation', async (t) => {
+  // The store's methods are replaced below, so this address is never connected to.
+  process.env.DATABASE_URL ??= 'postgresql://unused:unused@127.0.0.1:1/unused';
   const app = await NestFactory.create(AppModule, { logger: false });
   t.after(() => app.close());
   const store = app.get(RequestsStore);

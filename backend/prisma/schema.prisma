@@ -2,9 +2,12 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// PostgreSQL keeps data outside the app server, so restarts and redeploys cannot lose it.
+// DATABASE_URL may be a pooled connection; migrations use the direct DIRECT_URL.
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum RequestStatus {
@@ -24,6 +27,7 @@ model ServiceRequest {
   comments    RequestComment[]
 
   @@index([department, status])
+  @@index([requesterId])
   // Keep current status for lists; StatusEvent records each change.
   status      RequestStatus @default(NEW)
   history     StatusEvent[]

@@ -4,6 +4,8 @@ const { existsSync } = require('node:fs');
 const { resolve } = require('node:path');
 const { GeminiClient } = require('../dist/intake/gemini.client');
 const { IntakeService, INTAKE_FAILURE } = require('../dist/intake/intake.service');
+const { RateLimiter } = require('../dist/rate-limit');
+const { AiStatus } = require('../dist/intake/ai-status');
 const cases = require('./cases.json');
 // Offline mode replays fixed provider responses; live mode calls Gemini.
 const live = process.argv.includes('--live');
@@ -45,7 +47,7 @@ async function main() {
         catch (error) { adapterFailure = error instanceof Error ? error.message : 'Adapter failed'; throw error; }
       };
     }
-    const service = new IntakeService(provider);
+    const service = new IntakeService(provider, new RateLimiter(), new AiStatus());
     try {
       for (let repeat = 0; repeat < 2; repeat++) {
         if (item.failure) await assert.rejects(service.suggest(actor, { text: item.text }), error => error.getStatus() === 502 && error.message === INTAKE_FAILURE);

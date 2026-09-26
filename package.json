@@ -1,0 +1,14 @@
+{
+  "name": "internal-request-tracker",
+  "private": true,
+  "description": "Root commands for building, verifying and running the whole Operations Hub",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "npm --prefix backend ci && npm --prefix backend run build && npm --prefix frontend ci && npm --prefix frontend run build",
+    "start": "npm --prefix backend run start:prod",
+    "verify:release": "node scripts/verify-release.mjs",
+    "smoke": "node scripts/smoke.mjs"
+  }
+}

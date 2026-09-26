@@ -5,6 +5,6 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     // API_TARGET points browser tests at their isolated backend.
-    proxy: { '/requests': process.env.API_TARGET || 'http://127.0.0.1:3000' },
+    proxy: Object.fromEntries(['/requests', '/actors', '/health'].map(path => [path, process.env.API_TARGET || 'http://127.0.0.1:3000'])),
   },
 });
