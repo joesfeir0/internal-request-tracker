@@ -1,6 +1,6 @@
 # Internal Request Tracker - Data Model
 
-> This is the original Week 1 data model. It describes the design ideas, rather than every table that was later built. Week 3 added ServiceRequest and StatusEvent with Prisma/SQLite. The Week 4 update at the end explains the difference between temporary AI suggestions and saved records.
+> This is the original Week 1 data model. It describes the design ideas, rather than every table that was later built. Week 3 added ServiceRequest and StatusEvent with Prisma/SQLite; Week 5 moved the same model to PostgreSQL. The Week 4 update at the end explains the difference between temporary AI suggestions and saved records; the Week 5 update shows the current tables, indexes and where each rule is enforced.
 
 Based on product-spec.md and architecture.md. A data model describes what the system must remember and which rules it must keep. This lets the product keep working across requests, restarts and time. It is not a database schema.
 
@@ -178,7 +178,7 @@ Another engineer should be able to explain four things from this file.
 
 **Why:** an AI suggestion is advice that still needs review. It must be kept separate from an official ServiceRequest.
 
-The current Prisma/SQLite schema contains ServiceRequest (ID, requester ID, nullable assigned handler ID, department, description, summary, creation time and status), StatusEvent (event identity/order, request ID, status, actor and time), and RequestComment (ID, request ID, author ID, message and creation time). A newly submitted request has no handler until claimed. Employee and Department are not database entities yet: the backend resolves fixed demo identities and memberships. Requesters see their own requests; department handlers see their inbox and can read and reply to its requests. Assigned handlers also retain read access, and only the assigned handler can update status. A live organization directory and production authentication remain future work.
+The current Prisma/PostgreSQL schema contains ServiceRequest (ID, requester ID, nullable assigned handler ID, department, description, summary, creation time and status), StatusEvent (event identity/order, request ID, status, actor and time), and RequestComment (ID, request ID, author ID, message and creation time). A newly submitted request has no handler until claimed. Employee and Department are not database entities yet: the backend resolves fixed demo identities and memberships. Requesters see their own requests; department handlers see their inbox and can read and reply to its requests. Assigned handlers also retain read access, and only the assigned handler can update status. A live organization directory and production authentication remain future work.
 
 IntakeCandidate contains suggestedDepartment, summary, missingInformation[] and suggestedNextStep. The backend checks it and builds a clean result, which the browser keeps temporarily. It has no database identity, assigned owner, status flow or saved history. AI preview alone requires no migration or candidate table. The later department workflow has its own migration for durable request fields, nullable assignment and RequestComment. A reviewed candidate's summary can become the saved request summary on explicit submission; the full candidate is not stored.
 
@@ -190,6 +190,68 @@ See [Week 4 delivery](week4-production-ai.md) for candidate limits, trust bounda
 
 ## Later implementation note
 
-The implemented indexes differ from the Week 1 proposal: ServiceRequest has its ID primary key and a department/status index; StatusEvent has its sequence primary key, unique event ID and requestId/sequence index; RequestComment has its ID primary key and requestId/createdAt index. There is no requesterId index yet. History is ordered by sequence, not timestamp, so equal timestamps do not make its order ambiguous. Actor IDs are strings resolved through the demo actor directory, not foreign keys to Employee records.
+The implemented indexes differ from the Week 1 proposal: ServiceRequest has its ID primary key and a department/status index; StatusEvent has its sequence primary key, unique event ID and requestId/sequence index; RequestComment has its ID primary key and requestId/createdAt index. There was no requesterId index at that point; Week 5 adds it (see below). History is ordered by sequence, not timestamp, so equal timestamps do not make its order ambiguous. Actor IDs are strings resolved through the demo actor directory, not foreign keys to Employee records.
 
 The later workflow saves department, description and summary fields, allows the assigned handler to be null, and adds RequestComment. The Department entity from the original design is still represented only by fixed routing codes and demo actor memberships. See [Department workflow](department-workflow.md).
+
+## Week 5 amendment - PostgreSQL, ticket numbers and enforced rules
+
+**Why:** the live app needs storage that survives restarts of a free web host, so the same relational model now runs on PostgreSQL (Neon). This confirms the section 5 direction: relational storage, chosen for relationships and "save together" guarantees. See [ADR-002](decisions/ADR-002.md).
+
+```mermaid
+erDiagram
+  ServiceRequest ||--o{ StatusEvent : "history (append-only)"
+  ServiceRequest ||--o{ RequestComment : "conversation"
+  ServiceRequest {
+    string id PK "REQ-1006, from a sequence"
+    string requesterId "demo account ID"
+    string handlerId "null until claimed"
+    string department "IT, HR or FINANCE"
+    string description
+    string summary
+    datetime createdAt
+    enum status "NEW, IN_PROGRESS, DONE"
+  }
+  StatusEvent {
+    int sequence PK "stable order"
+    string id UK
+    string requestId FK
+    enum status
+    string changedBy
+    datetime changedAt
+  }
+  RequestComment {
+    string id PK
+    string requestId FK
+    string authorId
+    string message
+    datetime createdAt
+  }
+```
+
+**Ticket numbers.** A database sequence (`request_number_seq`, starting at 1006) gives each new ticket a short reference, `REQ-<number>`, inside the same transaction that creates it. The database hands out each number once, so two submissions at the same moment never collide and numbers are never reused, even after a reset. REQ-1001 to REQ-1005 are the demo tickets. The reference is also the primary key, so it is unique (section 6's "find by reference").
+
+**Indexes now match the access patterns in section 6:**
+
+| Access pattern | Index |
+| --- | --- |
+| My requests | `ServiceRequest(requesterId)` (added in Week 5) |
+| Department list by status | `ServiceRequest(department, status)` |
+| One request with its history | `StatusEvent(requestId, sequence)` |
+| One request with its conversation | `RequestComment(requestId, createdAt)` |
+| Find by reference | Primary key on `ServiceRequest.id` |
+
+**Where each rule is enforced now:**
+
+| Rule | Enforced by |
+| --- | --- |
+| Status and its history event saved together (ADR-001) | One database transaction; a conditional update rejects a stale change with 409 |
+| Status note saved with the status change | Same transaction as above |
+| One handler at a time | Conditional claim (`handlerId IS NULL`); a second claim gets 409 |
+| Allowed transitions only | Backend lifecycle table |
+| Who may see, claim, reply, change status | [Permission policy](../backend/src/requests/policy.ts), checked on every action |
+| DONE requests are closed to replies | Permission policy (409) |
+| Events and comments belong to a real request | Foreign keys |
+| History is never edited | No API to edit or delete; reset is a separate maintenance command guarded against remote databases |
+
+**Still not entities.** Employee and Department remain fixed demo accounts and routing codes, not tables ([ADR-003](decisions/ADR-003.md)). `allowedActions` in API responses is computed for each viewer and never stored.

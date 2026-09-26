@@ -1,6 +1,6 @@
 # Internal Request Tracker - Architecture Draft
 
-> This is the original Week 1 architecture draft. The parts that say technology has not been chosen and AI is excluded describe that version. The running product now uses React, NestJS, Prisma and SQLite. The Week 4 update at the end explains the Gemini connection and the checks around its suggestions.
+> This is the original Week 1 architecture draft. The parts that say technology has not been chosen and AI is excluded describe that version. The running product now uses React, NestJS, Prisma and PostgreSQL (SQLite until 2026-09-26). The Week 4 update at the end explains the Gemini connection and the checks around its suggestions; the Week 5 update shows the deployed system.
 
 Based on product-spec.md, with its requirements unchanged. The matching diagram is in architectureDiagram.png .
 
@@ -168,6 +168,57 @@ A temporary preview does not need a database migration, a department membership 
 
 ## Later implementation note
 
-The organizational Identity Service described in the original draft has not been integrated. Current authentication is only a demo actor header. Lists load on startup, actor changes and explicit Refresh request; selecting an already loaded request displays that snapshot without another read. Reloading also fetches current data. There is no polling or live push. Append-only history is enforced by the application API; the local demo reset utility is a separate destructive maintenance operation, not a user permission.
+The organizational Identity Service described in the original draft has not been integrated. Current authentication is only a demo actor header. Lists load on startup, actor changes and explicit refresh (the button is now labelled **Refresh**); selecting an already loaded request displays that snapshot without another read. Reloading also fetches current data. There was no polling or live push at that point; Week 5 adds a 30-second background refresh (see below). Append-only history is enforced by the application API; the local demo reset utility is a separate destructive maintenance operation, not a user permission.
 
 The later workflow adds POST /requests with its own permission checks, shows requests according to department, lets handlers claim a request only when it is unassigned, and saves replies. See [Department workflow](department-workflow.md).
+
+## Week 5 amendment - deployed system
+
+**Why:** the product now runs online, independent of the student's laptop, at no cost. This section shows the real running system. The Week 1 sections above and `architectureDiagram.png` remain the original design.
+
+```mermaid
+flowchart LR
+  subgraph Users
+    E[Employee]
+    H[Department handler]
+  end
+  subgraph Render["Render web service (free)"]
+    APP[Built React app<br/>served as static files]
+    API[NestJS backend<br/>policy, validation, rate limits,<br/>health, logs]
+  end
+  DB[(Neon PostgreSQL<br/>branch: production)]
+  AI[Google Gemini<br/>free tier]
+  E & H -- HTTPS --> APP
+  APP -- same-origin API calls --> API
+  API -- Prisma, TLS --> DB
+  API -- server-side key --> AI
+```
+
+**Components now.** The User-Facing App is the React build. It is served by the backend itself, so the browser talks to one address. The Request Backend is still one NestJS component (decision D1 holds). Request Storage is PostgreSQL on Neon ([ADR-002](decisions/ADR-002.md)). Gemini is the one external runtime integration, owned by the backend (decision D6 holds).
+
+**Trust boundaries now.**
+
+1. **Browser to backend:** the backend resolves the account from `X-Actor-Id` against a fixed directory and applies [one permission policy](../backend/src/requests/policy.ts). Responses include `allowedActions`, so the screen shows only what the server will accept. Rate limits protect saves and the AI quota.
+2. **Backend to Gemini:** only the typed text and the service directory cross; the response is validated before use (unchanged from Week 4).
+3. **Backend to Neon:** a TLS connection whose address is a secret held in the hosting configuration, never in Git.
+
+**Identity (changes decision D2).** The organization's Identity Service was never available for this project. Sign-in is replaced by demo accounts, which Day 15 allows as "demo access". Authorization is unchanged in principle: it is decided in the backend on every action. See [ADR-003](decisions/ADR-003.md).
+
+**Communication (changes section 8 and decision D4).** Requests and responses stay direct. To let employees see handler updates without clicking Refresh, the app now re-reads its list every 30 seconds while the tab is visible. This is simple polling: a new need (seeing updates) appeared, and polling is the smallest answer. There is still no push, webhook or notification component. A slower background result never overwrites a newer local save.
+
+**Failures added by going live.**
+
+| Failure | Who notices | What the user sees | Safe behavior |
+| --- | --- | --- | --- |
+| Gemini key invalid, quota used or outage | Backend (log), `/health` shows `degraded` | Explanation, text kept, manual department choice opens | Manual submission and tracking keep working |
+| Database unreachable | Backend (log with error code), `/health` shows `unhealthy` (503) | "Could not load/save", retry | Nothing is shown as saved unless it was |
+| Free instance asleep | Nobody; it is expected | First page takes up to about a minute | Data is safe on Neon |
+| Missing configuration | Startup | App does not start | Refuses to guess a database instead of using a local file |
+
+**Operations.** `/health/live` shows the process is running; `/health` shows useful capability with separate database and AI checks and the running commit. Logs record method, path, status, duration and safe failure reasons, never request content. Details: [Week 5 release operations](week5-release-operations.md).
+
+**New decisions**
+
+- **D7 - One hosted service for frontend and API.** Options: separate static host plus API, or one service. Chose one service: no CORS or build-time API address, and one thing to deploy. Cost: the API and page share one free instance.
+- **D8 - Managed PostgreSQL outside the app host.** The free host's disk is disposable, so data lives on Neon ([ADR-002](decisions/ADR-002.md)).
+- **D9 - Demo identity with a single server-side policy** ([ADR-003](decisions/ADR-003.md)).

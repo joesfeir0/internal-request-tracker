@@ -1,6 +1,6 @@
 # Internal Request Tracker - Product Specification
 
-> The requirements below are the original Week 1 product plan. They include assumptions and features that have not been built yet. The Week 4 update at the end explains the AI intake scope; see week4-production-ai.md for how it was built and tested.
+> The requirements below are the original Week 1 product plan. They include assumptions and features that have not been built yet. The Week 4 update at the end explains the AI intake scope (see week4-production-ai.md), and the Week 5 update lists what version 1 delivers and answers the open questions.
 
 
 ## Problem / Context
@@ -169,3 +169,51 @@ The presentation uses separate preparation and tracking views. Preparation follo
 ## Later implementation note
 
 The later department workflow adds a separate submit action, department inboxes, the ability for handlers to claim requests, and saved replies. See [Department workflow](department-workflow.md); the AI remains advisory.
+
+## Week 5 amendment - final scope and answers to open questions
+
+**Why:** the product is now released as a live demo. This section records what version 1 actually delivers, and gives a working answer to each Week 1 unknown so the scope is explicit. These are proposed product decisions for the demo, not confirmed organization policy. The original requirements above are unchanged.
+
+### Functional requirements: delivered or not
+
+| Requirement | Status in v0.5 |
+| --- | --- |
+| FR-1 Send a request | Done. Employees submit with a description, summary and department; AI help is optional. |
+| FR-2 Confirmation and reference | Done. Short sequential ticket numbers (REQ-1006 onward) shown after saving. |
+| FR-3 List own requests with status | Done. **My requests**, with Open / Done filters. |
+| FR-4 Details, status, latest update, history, department | Done. The latest update is the newest reply or status note; there is no separate field. |
+| FR-5 Employee comments | Done, while the request is open. |
+| FR-6 Handler sees their requests | Done as a department inbox (assigned and unassigned). |
+| FR-7 Take responsibility | Done. Claim, protected against two handlers claiming at once. |
+| FR-8 Change status and add a progress update | Done. Status change with an optional note, saved in the same transaction. |
+| FR-9 Handler comments visible to the employee | Done. |
+| FR-10 Who and when for every status change | Done. Append-only history with account and time. |
+| FR-11 Reject missing information | Done. Backend validation with clear messages. |
+| FR-12 Prevent unauthorized access or change | Done for the demo accounts: one server-side policy (404 / 403). Real sign-in is not included ([ADR-003](decisions/ADR-003.md)). |
+
+The assumption "login already exists in the organization" did not hold for this project. Demo accounts stand in for it, which is acceptable only with fictional data.
+
+### Answers to the unknowns
+
+| Unknown | Working answer for v1 | In the product? |
+| --- | --- | --- |
+| Request types | IT, HR and Finance service requests, as described in the service directory | Yes |
+| Required information | Description, summary and a supported department. AI questions help but do not block a manual submission. | Yes |
+| Status names and transitions | `NEW -> IN_PROGRESS -> DONE`, no skipping and no going back | Yes |
+| Rejected and Cancelled | Deferred. A fuller product could let the requester cancel a NEW request and the assignee reject with a reason. | No |
+| Who can see a request | The requester and handlers of the receiving department; the assigned handler keeps access | Yes |
+| Managers | No manager role in v1 | No |
+| How assignment works | The employee chooses the department (AI may suggest); a handler in that department claims it | Yes |
+| Transfers between departments | Deferred; would need an explicit reason and an ownership event | No |
+| Notifications outside the product | Not in v1. Lists refresh every 30 seconds in the app. | No |
+| Edit after sending | Not allowed; add information as a comment | Yes (no edit) |
+| Cancel after sending | Deferred | No |
+| Reopen | No. DONE closes the conversation; send a new request. | Yes |
+| Priority, due date | Deferred; no deadlines are promised | No |
+| Attachments | Deferred; would need private storage and file checks | No |
+| Employee or handler leaves | Needs real accounts and administration; out of scope for the demo | No |
+| Scale | Sized for a demo on free tiers; no measured capacity claim | - |
+| Uptime and retention | Best effort on free hosting, disclosed; fictional data only | - |
+| Can handlers submit their own requests? | Not in the demo (roles are separate). Real use would give every employee submit rights plus separate handling permissions, and forbid handling your own request. | No |
+
+These answers keep the "harder, not bigger" rule from Day 15: deferred features are listed here instead of being half-built.

@@ -4,7 +4,7 @@
 
 ## Capability and scope
 
-The same React -> NestJS -> Prisma -> SQLite repository now lets a requester describe an issue and receive a structured AI suggestion. The running app uses Google Gemini, with the default model `gemini-3.1-flash-lite`. The running app does not use prepared answers if the provider fails. The preview helps prepare a request; it does not submit one, create a record, assign a handler, change status, or append history.
+The same React -> NestJS -> Prisma -> SQLite repository (PostgreSQL since Week 5) now lets a requester describe an issue and receive a structured AI suggestion. The running app uses Google Gemini, with the default model `gemini-3.1-flash-lite`. The running app does not use prepared answers if the provider fails. The preview helps prepare a request; it does not submit one, create a record, assign a handler, change status, or append history.
 
 The employee types into **Describe your issue**, clicks **Get AI suggestion**, reviews the result, adds missing details to the same text, and tries again. Each suggestion is a separate interaction. It does not keep a chat history or act as a department inbox. Editing the text clears the old result and cancels the browser request. Changing the development actor clears the entire intake form. If the employee has moved on from an earlier input, its response cannot appear in the new preview.
 
@@ -35,9 +35,9 @@ Backend instructions and the service directory go in Gemini's system instruction
 
 ## Authentication and authorization
 
-The existing `DevActorGuard` looks up `X-Actor-Id` in the known demo users. This simulates identity for testing; it does not verify a real user login. Intake is permitted only to the requester role (`employee-001` in this demo); handlers receive 403 even if they call the endpoint directly. This rule applies only to this milestone. A future identity system could allow a handler to also act as an employee.
+The existing `DevActorGuard` looks up `X-Actor-Id` in the known demo users. This simulates identity for testing; it does not verify a real user login. Intake is permitted only to the requester role (`employee-001` in this demo; `employee-002` was added in Week 5); handlers receive 403 even if they call the endpoint directly. This rule applies only to this milestone. A future identity system could allow a handler to also act as an employee.
 
-The current workflow lets the requester and handlers in the request's department read and reply. The assigned handler also retains read access; only that handler can update status. A handler can claim an unassigned request only in their department. Department inboxes and cross-department visibility checks are implemented using fixed demo memberships. An inaccessible request normally returns 404 before action permissions are checked; a forbidden action on a visible request returns 403. The AI's department suggestion cannot change those permissions. Production login and a live organization membership directory remain future work.
+The current workflow lets the requester and handlers in the request's department read and reply (since Week 5, replies stop once a request is DONE). The assigned handler also retains read access; only that handler can update status. A handler can claim an unassigned request only in their department. Department inboxes and cross-department visibility checks are implemented using fixed demo memberships. An inaccessible request normally returns 404 before action permissions are checked; a forbidden action on a visible request returns 403. The AI's department suggestion cannot change those permissions. Production login and a live organization membership directory remain future work.
 
 ## Request and response contract
 
@@ -70,15 +70,16 @@ The JSON schema sent to Gemini helps it return a consistent structure, but the b
 | 400 | Invalid input |
 | 401 | Missing/unknown teaching actor |
 | 403 | Known actor not allowed to use intake |
+| 429 | Rate limit (added in Week 5): more than 10 suggestions per minute per client or 300 per day overall; the UI offers manual department choice |
 | 502 | Missing provider configuration, quota, refusal/incomplete response, malformed envelope/JSON/fields, oversize response, timeout or network/provider failure |
 
-All provider/configuration failures use: **Could not produce an intake suggestion right now. Please try again.** Provider details and keys are not logged or exposed. The screen keeps the issue text and lets the user try again. Input and permission errors still have their own meanings and responses.
+All provider/configuration failures use: **Could not produce an intake suggestion right now. Please try again.** Provider details and keys are not exposed. Since Week 5 the backend logs a safe failure category (for example `Provider unavailable (HTTP 429)` or `Provider timed out`), never the text, key or raw provider response. The screen keeps the issue text and lets the user try again. Input and permission errors still have their own meanings and responses.
 
 ## Architecture and state invariant
 
 React -> guarded NestJS intake controller -> intake service -> Gemini adapter -> Google Gemini -> envelope parsing -> candidate validation/reconstruction -> React preview.
 
-`IntakeService` depends only on `GeminiClient`. It has no store or Prisma dependency, and no path to `RequestsService.changeStatus`. Suggestion calls do not change `ServiceRequest`, `StatusEvent` or `RequestComment`, whether they succeed or fail. The existing status flow continues to use its transaction and permissions. AI preview alone needed no schema migration and has no candidate table. The later department workflow adds a migration for request fields, a nullable handler and saved comments. Submit is a separate user action that saves a request and initial history event; its summary may come from the reviewed AI suggestion. The complete candidate and model conversation are not persisted.
+`IntakeService` depends on `GeminiClient` (and, since Week 5, the in-memory rate limiter and AI status record used by health). It has no store or Prisma dependency, and no path to `RequestsService.changeStatus`. Suggestion calls do not change `ServiceRequest`, `StatusEvent` or `RequestComment`, whether they succeed or fail. The existing status flow continues to use its transaction and permissions. AI preview alone needed no schema migration and has no candidate table. The later department workflow adds a migration for request fields, a nullable handler and saved comments. Submit is a separate user action that saves a request and initial history event; its summary may come from the reviewed AI suggestion. The complete candidate and model conversation are not persisted.
 
 ## Free model and setup
 
@@ -108,7 +109,7 @@ npm run test:e2e
 
 `npm test` checks field values, permissions before calling the provider, the context sent to the provider, removal of extra fields, badly formed or incomplete responses, quota and provider errors, responses that are too large, network errors and timeouts, and missing credentials. It also compares ServiceRequest and StatusEvent snapshots before and after both successful and failed calls; those snapshots do not include RequestComment. The absence of an intake storage dependency supports the broader no-write invariant. The timeout test simulates a timeout error; it does not wait 20 seconds. Existing lifecycle tests remain in the suite.
 
-The current browser suite has two journeys. The first checks that an employee has no status button, then an assigned handler updates an existing request and the status survives a page reload. The second follows AI suggestion -> submit to HR -> HR inbox -> claim -> reply -> IN_PROGRESS -> DONE -> requester sees the result, and checks that IT cannot see the HR request. It captures mobile and desktop views and checks saved comments/history in SQLite. Only the external AI transport is replaced; UI, HTTP, NestJS, adapter validation and persistence are real. These tests do not call live Gemini or currently exercise provider failure/retry and clearing suggestions after an input edit. Backend tests separately cover provider failures and unchanged request/status-history snapshots for suggestion calls.
+At Week 4 the browser suite had two journeys (Week 5 adds a third: AI outage -> manual submission -> boundary denials). The first checks that an employee has no status button, then an assigned handler updates an existing request and the status survives a page reload. The second follows AI suggestion -> submit to HR -> HR inbox -> claim -> reply -> IN_PROGRESS -> DONE -> requester sees the result, and checks that IT cannot see the HR request. It captures mobile and desktop views and checks saved comments/history in SQLite. Only the external AI transport is replaced; UI, HTTP, NestJS, adapter validation and persistence are real. These tests do not call live Gemini or currently exercise provider failure/retry and clearing suggestions after an input edit. Backend tests separately cover provider failures and unchanged request/status-history snapshots for suggestion calls.
 
 `backend/eval/cases.json` contains eight human-authored cases:
 
@@ -159,7 +160,7 @@ These results describe the original preview implementation and the tests that ex
 
 ## Limits and deferred work
 
-Request submission, department inboxes, claims and saved conversations are implemented through separate authorized actions. Department memberships are fixed demo assignments. Production login, a live organization directory, persisted full AI candidates, RAG, agents/tools, MCP, deployment and new infrastructure remain outside this milestone. The AI does not decide permissions or perform requested work. Reaching the free usage limit is an expected failure and returns the same standard error. The dependency audit notes in the README still describe the earlier audit; this documentation update did not fix those findings or run that audit again.
+Request submission, department inboxes, claims and saved conversations are implemented through separate authorized actions. Department memberships are fixed demo assignments. Production login, a live organization directory, persisted full AI candidates, RAG, agents/tools, MCP, deployment and new infrastructure remained outside this milestone (Week 5 adds the deployment). The AI does not decide permissions or perform requested work. Reaching the free usage limit is an expected failure and returns the same standard error. The dependency audit notes in the README still describe the earlier audit; this documentation update did not fix those findings or run that audit again.
 
 ### Updated intake interaction
 
@@ -178,3 +179,21 @@ These answers prepare for putting the system live in Week 5. The user paths desc
 7. **What condition should require attention?** Every intake call failing for several minutes in a row, or any request, status or reply save failing.
 8. **What is one safe known recovery path?** Correct the key or model name in `backend/.env` and restart the backend. While Gemini is down, employees can still choose a department by hand and submit, so the main user path keeps working.
 9. **How will I prove health and user behavior after recovery?** One intake suggestion returns 200. Then submit -> claim -> status change works for a new request. Finally, run `npm test` and `npm run test:e2e` again.
+
+## Week 5 follow-up: what happened to the operations checklist
+
+The nine planning answers above were implemented or proven in Week 5. Details: [Week 5 release operations](week5-release-operations.md).
+
+| Checklist question | Week 5 result |
+| --- | --- |
+| 1. What does healthy mean? | `GET /health`: database and AI checked separately; `ok`, `degraded` or `unhealthy` |
+| 2. Which user path must work after recovery? | Unchanged; checked by the smoke script and E2E journeys |
+| 3. Which dependency can fail while the process runs? | Gemini (as planned) and PostgreSQL on Neon (replacing the SQLite file) |
+| 4. Which signal reveals it? | `/health` shows `triageModel: unavailable` (degraded) or `database: unavailable` (unhealthy, 503) |
+| 5. Which log explains it safely? | **Gap closed:** `AI intake failed: <safe category>` and `<action> failed for <ticket>: <database code>`; no text, key or raw response |
+| 6. Repeated observation | An uptime monitor on `/health` (setup pending with the deployment) |
+| 7. Condition that needs attention | Repeated non-`ok` health results |
+| 8. Safe recovery path | Restore the key or model in the hosting configuration; manual submission works meanwhile. Rehearsed in automated tests; live drill pending. |
+| 9. Proof after recovery | `/health` back to `ok`, `npm run smoke -- <url>`, and the release gate |
+
+The Week 4 AI contract, context rules and evals are unchanged. The AI health probe reuses recent real results so monitoring does not spend the free quota.

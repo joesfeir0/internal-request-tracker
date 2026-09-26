@@ -1,157 +1,233 @@
-# Internal Request Tracker
+# Operations Hub - Internal Request Tracker
 
-Operations Hub tracks service requests, helps employees prepare them with **AI-assisted Request Intake**, and sends them to departments. It uses React -> HTTP -> NestJS -> Prisma -> SQLite. The backend connects to Gemini.
+[![Release gate](https://github.com/joesfeir0/internal-request-tracker/actions/workflows/release-gate.yml/badge.svg)](https://github.com/joesfeir0/internal-request-tracker/actions/workflows/release-gate.yml)
 
-The status flow used for now is `NEW -> IN_PROGRESS -> DONE`. Only the assigned handler may change status. Every successful change saves the new status and a history event together. If a change is rejected, the record stays the same. Saved data is still there after the backend restarts.
+Operations Hub lets employees send internal service requests to IT, HR or Finance and follow them until they are done. **AI-assisted Request Intake** helps the employee describe the problem and suggests a department; a person always makes the final choice. Department handlers claim requests, reply, and move them through `NEW -> IN_PROGRESS -> DONE`.
 
-## Install and run
+Stack: React -> HTTP -> NestJS -> Prisma -> PostgreSQL, with Google Gemini for AI suggestions. Built to run for free on Render (app) and Neon (database).
 
-Requires Node.js **22.12+** and npm. Verified with Node 24.12.0, npm 11.6.2, and PowerShell 7 on Windows. These commands use PowerShell 7. Core tracking and offline tests need no global Nest CLI, external database, credentials, or `.env` file. Live AI suggestions require a Gemini API key; see the AI setup below.
+This README is the handoff:
 
-Open a terminal in the main folder of the cloned repository:
+1. [Live app](#1-live-app): try the product.
+2. [Engineer quick start](#2-engineer-quick-start): run and test it.
+3. [Operations](#3-operations): keep it healthy and recover it.
+4. [Evidence map](#4-evidence-map): the proof behind every week.
+
+Reference details come after these four sections.
+
+## 1. Live app
+
+**Live URL: pending, added after deployment** (a Render `onrender.com` address). The first visit after a quiet period can take up to a minute, because the free server sleeps when unused.
+
+### What it does
+
+- An **employee** describes an issue, can ask AI for a suggestion (department, summary, missing details), chooses the department and submits. They get a ticket number such as `REQ-1006` and follow replies and status under **My requests**.
+- A **department handler** sees their department's inbox, claims a ticket, replies, and moves it to In progress and then Done, with an optional note to the employee.
+- The AI only advises. It never saves, routes or changes anything. If it is down, the employee picks the department by hand and everything else still works.
+
+### Demo access and roles
+
+There is no password: choose an account in the **Testing workspace** menu on the left. These are demo accounts, not real sign-in. All data is fictional; do not enter real personal information.
+
+| Account | ID | Role | What it can do |
+| --- | --- | --- | --- |
+| Maya Haddad | `employee-001` | Employee | Submit tickets; read and reply to her own. Owns demo tickets REQ-1001 to REQ-1005. |
+| Karim Nassar | `employee-002` | Employee | Same as Maya, but cannot see Maya's tickets. |
+| Rami Khoury | `handler-001` | IT handler | IT inbox. Assigned to REQ-1001, REQ-1004, REQ-1005. |
+| Lina Farah | `handler-004` | IT handler | IT inbox. Cannot change the status of a ticket Rami claimed. |
+| Nour Saleh | `handler-002` | HR handler | HR inbox. Assigned to REQ-1002. |
+| Omar Aoun | `handler-003` | Finance handler | Finance inbox. Assigned to REQ-1003. |
+
+### One critical journey to try
+
+1. As **Maya Haddad**, on **Prepare a request**, type *I need an employment letter for my bank by next Friday.* Click **Get AI suggestion**, review it and keep **HR** (if AI is unavailable, choose HR under **Already know the department?**). Click **Submit to HR** and note the ticket number. It is NEW, unassigned, with one history entry.
+2. Switch to **Nour Saleh**. Open the ticket in the HR inbox, **Claim request**, send a reply, **Start progress**, then **Mark done** with a short resolution note. The conversation closes when the ticket is Done.
+3. Switch back to **Maya Haddad**, open **My requests**, choose **Done**, and see the status, replies and full history. Reload the page: everything is still there.
+
+**Try a rejected action.** As **Karim Nassar**, type Maya's ticket number into **Open by reference**: the server answers "Request unavailable or not found." As **Lina Farah**, open a ticket Rami claimed: she can read and reply but cannot change its status.
+
+## 2. Engineer quick start
+
+### Prerequisites
+
+- Node.js **22.12+** and npm. Verified with Node 24.12.0 and npm 11.6.2 on Windows (PowerShell 7); CI uses Node 24 on Ubuntu. `.nvmrc` pins 24.
+- A **PostgreSQL** database: a free [Neon](https://neon.tech) project with a separate `development` branch (recommended), or a local PostgreSQL. Never develop against the live `production` branch.
+- Optional: a Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey) for real AI suggestions. Everything else, including all tests, works without it.
+
+### Configure
+
+```powershell
+cd backend
+Copy-Item .env.example .env
+```
+
+Then edit `backend/.env`:
+
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | Neon **pooled** address (host contains `-pooler`), or your local PostgreSQL address |
+| `DIRECT_URL` | Neon **direct** address (the same without `-pooler`); for local PostgreSQL, the same as `DATABASE_URL` |
+| `GEMINI_API_KEY` | Your key, or empty to run without AI |
+
+`.env` is ignored by Git. Never commit these values or put them in frontend code.
+
+### Database and demo data
 
 ```powershell
 cd backend
 npm ci
 npm run db:setup
-npm start
 ```
 
-`npm ci` generates the Prisma client. Setup runs the database migration stored in the repository and adds any missing example requests without replacing existing records. The start command builds TypeScript and starts the backend at http://127.0.0.1:3000. Leave this terminal running.
+`npm ci` installs dependencies and generates the Prisma client. `db:setup` creates the tables and adds the five demo tickets if they are missing; it never replaces existing data.
 
-In a second terminal at the repository root:
+### Run in development (two terminals)
+
+```powershell
+cd backend
+npm start
+```
 
 ```powershell
 cd frontend
 npm ci
-npm run build
 npm run dev
 ```
 
-Open [the React app](http://127.0.0.1:5173). Vite forwards `/requests` calls to port 3000. The frontend has AI-assisted intake, a separate submit action, department inboxes, conversations, and the five seeded examples. The actor selector lets you switch users for the demo. It does not provide real login.
+Open http://127.0.0.1:5173. Vite forwards `/requests`, `/actors` and `/health` to the backend on port 3000.
 
-## AI intake: setup and use
+### Run in production mode (one address, as on Render)
 
-The requester types an issue and clicks **Get AI suggestion**. The backend calls Gemini, checks its response, and returns a suggested department, summary, missing details and next step. Edit the issue to add details and try again. The AI gives advice for the employee to review. After reviewing the draft, the employee can choose to submit it to IT, HR or Finance. That action creates a real request for the selected department. Existing request status/history remain unchanged.
-
-The screen opens on **Prepare a request**, with **My requests** in the workspace sidebar. Handlers see their own **Department inbox** and a visible list of requests, with unassigned requests first. On phones this list sits above the request details. The visible **Testing workspace** selector switches between Employee, IT, HR and Finance demo roles.
-
-IT, HR and Finance descriptions are visible before any AI call. The **Draft department** dropdown is optional: choose manually or let AI populate it. Your manual choice stays selected when you edit the issue, encounter an error or get a new suggestion; **Use AI department** lets you accept a different recommendation.
-
-AI-filled choices clear when the issue changes. Switching actors clears the whole draft. The choice routes a request only after the employee presses **Submit**; it never grants department access.
-
-The default model is `gemini-3.1-flash-lite`. Google lists a [free API tier](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-lite), with usage limits. Use a free-tier project if you require zero API charges. Free-tier content may be used to improve Google's products: use fictional assignment issues, not confidential employee data.
-
-Get an API key through [Google AI Studio](https://aistudio.google.com/apikey). From `backend/`, create the local configuration **once**:
+From the repository root:
 
 ```powershell
-Copy-Item .env.example .env
-```
-
-Edit `.env` locally and put your key after `GEMINI_API_KEY=`. Leave `GEMINI_MODEL=gemini-3.1-flash-lite` unless intentionally choosing another compatible model. Do not overwrite an existing `.env`; edit it instead. Backend startup loads this file; restart after editing it. The file is Git-ignored. Never commit the key or put it in frontend / `VITE_` configuration.
-
-Start both servers using the commands above, select `employee-001`, and enter an issue such as "My laptop keeps shutting down while I work." Intake is requester-only in this demo. IT, HR, FINANCE and UNDETERMINED are suggestion values controlled by the backend. These values do not make someone a department member or give them access. The demo now includes separate department inboxes, request claiming, replies and status updates. Choosing an identity is still a way to demonstrate the system; it is not real sign-in.
-
-Without a key, or when Gemini is unavailable, the screen shows a retry message and keeps your text. There is no fake-answer or paid fallback in the running app. Editing input clears the previous preview; changing actors clears the intake form.
-
-From `backend/`:
-
-```powershell
-npm run eval:ai
-npm run eval:ai:live
-```
-
-- `eval:ai`: eight prepared response examples run through the real adapter and validator, each repeated twice. This needs no model call or key. It checks how the code handles responses, but does not measure model quality.
-- `eval:ai:live`: six cases that check real Gemini responses, each run twice, plus two simulated failures. This needs your key and uses part of the free-tier allowance. It reports pass or fail; the wording does not have to match the prepared examples exactly.
-
-For the full context, permissions, output limits, test cases and results, see [Week 4 production AI](docs/week4-production-ai.md).
-
-## Exercise the flow
-
-After database setup, this journey creates a new request; no reset is needed:
-
-1. Open http://127.0.0.1:5173 without a URL hash. The app starts as Employee (`employee-001`) on **Prepare a request**.
-2. Enter a fictional issue such as "I need an employment letter by Friday." Click **Get AI suggestion** and review the result. Choose HR as the final department. If AI is unavailable, expand **Already know the department?** and choose HR manually.
-3. Click **Submit to HR**. Note the generated request reference, then click **View my requests**. The saved request is NEW and unassigned, with its first history event.
-4. Choose **HR department** under **Testing workspace**, then select that reference from the HR inbox. Click **Claim request**.
-5. Add a reply using **Send reply**, then click **Start progress**. Confirm IN_PROGRESS and the added history event.
-6. Click **Mark done**. Confirm DONE and a third history event.
-7. Switch to **Employee**, open **My requests**, and select the same reference. Confirm the reply and DONE status. Reload and reselect that reference to verify the saved result is still available; the selected request itself is not preserved across reloads.
-
-Employees do not see status-change buttons. The backend independently rejects unauthorized status changes with 403; use the manual HTTP checks below to demonstrate that denial.
-
-### Development identities
-
-| Actor ID | Relationship and permission |
-| --- | --- |
-| `employee-001` | Requester of all five seed requests; can read them, cannot change official status. |
-| `handler-001` | Assigned to REQ-1001, REQ-1004, and REQ-1005; can read and advance them. |
-| `handler-002` | Assigned to REQ-1002; can read and advance it. |
-| `handler-003` | Assigned to REQ-1003; can read and advance it. |
-
-The UI and API expose all four actors. The backend looks up `X-Actor-Id` in this known list. It does not accept a role claimed by the client or a `changedBy` value sent by the client.
-
-### More examples
-
-Select `employee-001` to see all five requests in **My requests**. To advance an example, choose its department under **Testing workspace**; that handler's sidebar inbox shows only requests routed to their department. Select a request from the list to see its details, conversation and saved history.
-
-| Additional example | Assigned handler | Try on a fresh example |
-| --- | --- | --- |
-| REQ-1002 | handler-002 | Start progress, then mark done. |
-| REQ-1003 | handler-003 | View as Employee and confirm no status button appears; switch to Finance department to start progress. |
-| REQ-1004 | handler-001 | Start progress, refresh the request, and inspect the saved event. |
-| REQ-1005 | handler-001 | Advance this request and confirm the other requests' histories remain independent. |
-
-`npm run db:setup` adds missing examples without changing existing ones, including a completed REQ-1001. All five start at NEW only on a fresh database or explicit reset.
-
-**The demo identity selector is not a real login system.** Anyone can select a known actor ID. The architecture draft assumes an organizational Identity Service, but it has not been connected.
-
-## Database and reset
-
-Development data is in `backend/prisma/dev.db`, ignored by Git. `DATABASE_URL` optionally selects another SQLite file; its parent directory must exist. Both the backend and database commands load `backend/.env`. You can also set `DATABASE_URL` in the PowerShell environment (`$env:DATABASE_URL = 'file:C:/absolute/path/demo.db'`); a shell value takes precedence over `.env`. Normal startup never seeds or resets data.
-
-To repeat the demo, stop the backend with Ctrl+C, then run from `backend/`:
-
-```powershell
-npm run db:reset
+npm run build
 npm start
 ```
 
-Reset deletes all replies, history and requests in the selected database, then creates the five records again as NEW. It is a local utility, not an API endpoint. Use `npm run db:setup` when you want to preserve existing data.
+Open http://127.0.0.1:3000. The backend serves both the built frontend and the API.
+
+### Test everything
+
+```powershell
+# Once, from frontend/: install the browser used by E2E tests
+npx playwright install chromium
+
+# From the repository root: all checks in order, stopping at the first failure
+npm run verify:release
+```
+
+The release gate runs: backend build -> frontend type-check and build -> backend tests -> database integration test -> offline AI evals -> browser E2E. Individual commands are in [Automated evidence](#automated-evidence).
+
+## 3. Operations
+
+| Need | How |
+| --- | --- |
+| **Is it running?** | `GET /health/live` returns `{ "status": "ok" }` while the process is alive. Render's own checks use it. |
+| **Is it healthy?** | `GET /health` returns `ok`, `degraded` (AI down; manual flow still works) or `unhealthy` (database down; HTTP 503), with separate `database` and `triageModel` checks and the running `release` (commit). |
+| **Why did it fail?** | Logs (Render **Logs** tab, or the backend terminal): one line per API call, plus safe reasons such as `AI intake failed: Provider unavailable (HTTP 429)`. Never ticket text, prompts or keys. |
+| **Does the critical path work?** | `npm run smoke -- <url>`: read-only checks of health, frontend, accounts, tracking, a 404 boundary, a 401 boundary and one AI suggestion (`--skip-ai` skips it). |
+| **Monitoring** | An uptime monitor calls `/health` on a fixed interval and alerts after repeated non-`ok` results (set up with the deployment). |
+| **Failure -> recovery** | Break one dependency (for example an invalid `GEMINI_API_KEY` in Render), see `degraded` and the log reason, confirm manual submission still works, restore the key, then prove `/health` is `ok` and the smoke check passes again. Recovery is not rollback. |
+| **Reset demo data** | `npm run db:reset` in `backend/` deletes all tickets and recreates the five demo ones. It refuses a remote database unless run as `node scripts/database.cjs reset --confirm-remote`. Never part of a deploy. |
+
+Deployment settings, the full drill and all recorded evidence: [Week 5 release operations](docs/week5-release-operations.md).
+
+## 4. Evidence map
+
+| Week | Topic | Documents |
+| --- | --- | --- |
+| 1 | Design: product, architecture, data model, decisions | [Product spec](docs/product-spec.md), [architecture](docs/architecture.md) ([diagram](docs/architectureDiagram.png)), [data model](docs/data-model.md), [ADR-001 status history](docs/decisions/ADR-001.md) |
+| 2 | Engineering ownership: lifecycle rules, valid and invalid behavior | [Week 2 agentic workflow](docs/week2-agentic-workflow.md) |
+| 3 | Full stack: React + NestJS + database, permissions, E2E | [Week 3 full-stack delivery](docs/week3-full-stack-delivery.md) |
+| 4 | Production AI: bounded context, AI is not authority, failure safety, evals | [Week 4 production AI](docs/week4-production-ai.md), [department workflow and permissions](docs/department-workflow.md) |
+| 5 | Release ownership: config and secrets, release gate, health, logs, monitoring, recovery, GO/HOLD | [Week 5 release operations](docs/week5-release-operations.md), [ADR-002 hosting and database](docs/decisions/ADR-002.md), [ADR-003 demo identity and permissions](docs/decisions/ADR-003.md) |
+
+Key code: [permission policy](backend/src/requests/policy.ts), [status transaction and ticket numbers](backend/src/requests/requests.store.ts), [AI adapter](backend/src/intake/gemini.client.ts) and [AI contract](backend/src/intake/intake-contract.ts), [health](backend/src/health/health.service.ts), [release gate](scripts/verify-release.mjs), [smoke check](scripts/smoke.mjs), [CI workflow](.github/workflows/release-gate.yml).
+
+The Week 2 and Week 3 documents are dated records of earlier versions (in-memory, SQLite, `changedBy` in the body). This README describes the current version, v0.5.
+
+---
+
+# Reference
+
+## How the app works
+
+- **Two views.** Employees start on **Prepare a request** and track tickets under **My requests**. Handlers see their **Department inbox**, unassigned tickets first. Both lists have **Open** / **Done** filters, refresh themselves every 30 seconds while the tab is visible, and have a **Refresh** button. On phones the list sits above the ticket details.
+- **AI suggestion.** The employee types the issue and clicks **Get AI suggestion**. The backend asks Gemini, checks the answer and returns a department (IT, HR, Finance or "needs clarification"), a summary, missing details and a next step. The employee can add details and ask again.
+- **The employee decides.** The **Draft department** choice is optional before AI and editable after it. A manual choice is kept when the text changes or AI fails; **Use AI department** accepts the AI's choice instead. Nothing reaches a department until **Submit**, and choosing a department never grants access to it. **Copy draft** only copies text.
+- **When AI fails** (down, not configured or rate limited), the screen says so, keeps the text and opens **Already know the department?** so the employee can submit without AI. There is no fake answer and no paid fallback.
+- **Switching accounts** clears any unsubmitted draft; switching views keeps it.
+- **Model and data.** Default model `gemini-3.1-flash-lite` on Google's [free API tier](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-lite), which has usage limits and may use submitted content to improve Google's products. Use fictional examples only. Restart the backend after changing `.env`.
+
+Context sent to the model, output limits and eval results: [Week 4 production AI](docs/week4-production-ai.md).
+
+### Accounts and permissions
+
+The accounts are listed in [Demo access and roles](#demo-access-and-roles). `GET /actors` serves them to the UI. The backend looks up `X-Actor-Id` in that fixed list and never accepts a role or `changedBy` sent by the browser. All permission rules live in [policy.ts](backend/src/requests/policy.ts); every ticket response includes `allowedActions` for the calling account, and the UI shows only those actions. **This is not a real login system:** anyone can choose a demo account ([ADR-003](docs/decisions/ADR-003.md)).
+
+### Demo tickets
+
+| Ticket | Department | Assigned handler | Try |
+| --- | --- | --- | --- |
+| REQ-1001 | IT | Rami Khoury | As Maya: no status button. As Rami: Start progress, then Mark done. |
+| REQ-1002 | HR | Nour Saleh | Start progress, then Mark done. |
+| REQ-1003 | Finance | Omar Aoun | View as Maya, then advance as Omar. |
+| REQ-1004 | IT | Rami Khoury | Start progress, refresh, inspect the new history entry. |
+| REQ-1005 | IT | Rami Khoury | Advance it; the other tickets' histories stay unchanged. |
+
+New tickets get short numbers from a database sequence (REQ-1006, REQ-1007, ...). Numbers are never reused, even after a reset.
+
+## Database commands
+
+Data lives in the PostgreSQL database named by `DATABASE_URL`, outside the app server, so restarts and redeploys keep it. The backend and these commands load `backend/.env`; a value set in the shell wins. Normal startup never migrates, seeds or resets. Without `DATABASE_URL` the backend refuses to start instead of guessing a database.
+
+| Command (in `backend/`) | Effect |
+| --- | --- |
+| `npm run db:migrate` | Applies committed migrations only; never changes rows. Used for deployment. |
+| `npm run db:setup` | Migrates, then adds any missing demo tickets REQ-1001 to REQ-1005. Keeps existing data, including demo tickets already advanced. |
+| `npm run db:reset` | Deletes all tickets, replies and history, then recreates the five demo tickets as NEW. Refuses a non-local database unless run as `node scripts/database.cjs reset --confirm-remote`. |
 
 ## HTTP contract and manual checks
 
 | Endpoint | Successful result |
 | --- | --- |
-| `GET /requests` | 200; requests visible to the actor, including history |
-| `GET /requests/:id` | 200; one visible request |
-| `POST /requests` | 201; new request with NEW status, no handler and its first history event |
-| `POST /requests/:id/claim` | 201; request assigned to the department handler who claimed it |
-| `POST /requests/:id/comments` | 201; updated request including the saved reply |
-| `PATCH /requests/:id/status` | 200; updated request after the database transaction commits |
-| `POST /requests/intake-suggestion` | 200; validated advisory candidate, no database changes |
+| `GET /actors` | 200; demo accounts (no header needed) |
+| `GET /requests` | 200; tickets visible to the account, with history and comments |
+| `GET /requests/:id` | 200; one visible ticket |
+| `POST /requests` | 201; new NEW ticket, no handler, first history entry |
+| `POST /requests/:id/claim` | 201; ticket assigned to the claiming handler |
+| `POST /requests/:id/comments` | 201; ticket including the new reply |
+| `PATCH /requests/:id/status` | 200; ticket after the database transaction commits |
+| `POST /requests/intake-suggestion` | 200; checked AI suggestion; nothing saved |
+| `GET /health`, `GET /health/live` | See [Operations](#3-operations); no header needed |
 
-All routes require `X-Actor-Id`. PATCH accepts only `{ "status": "IN_PROGRESS" }` (or another supported status). Submission accepts exactly `{ "description": "your issue", "summary": "request summary", "department": "HR" }`: nonblank description up to 4000 characters, nonblank summary up to 600, and IT, HR or FINANCE. Claim needs no body. A reply accepts exactly `{ "message": "your reply" }`, nonblank and up to 2000 characters.
+Bodies (all other fields are rejected):
 
-Request reads and successful writes return `{ id, requesterId, handlerId, department, description, summary, createdAt, status, history, comments }`; GET /requests returns an array of these objects. `handlerId` is null until assigned. Each history event contains `{ id, requestId, status, changedBy, changedAt }`, ordered oldest first. Each comment contains `{ id, requestId, authorId, message, createdAt }`. Dates are ISO strings. See [the current TypeScript contract](backend/src/requests/request-status.ts) and [Department workflow](docs/department-workflow.md) for permissions and behavior. The Week 3 note preserves the older contract.
+- **Submit:** `{ "description", "summary", "department" }`: description 1-4000 characters, summary 1-600, department IT, HR or FINANCE.
+- **Reply:** `{ "message" }`, 1-2000 characters.
+- **Status:** `{ "status": "IN_PROGRESS" }` (or `DONE`), plus an optional `note` up to 2000 characters, saved as a reply in the same transaction.
+- **Claim:** no body.
+- **AI suggestion:** `{ "text" }`, 1-4000 characters. Returns `{ suggestedDepartment, summary, missingInformation, suggestedNextStep }`.
 
-Errors are readable `{ statusCode, message, error }` objects:
+`/requests` routes need the `X-Actor-Id` header. Ticket responses are `{ id, requesterId, handlerId, department, description, summary, createdAt, status, history, comments, allowedActions }`; `handlerId` is null until claimed; history entries are `{ id, requestId, status, changedBy, changedAt }`, oldest first; comments are `{ id, requestId, authorId, message, createdAt }`; dates are ISO strings. See [the TypeScript contract](backend/src/requests/request-status.ts).
+
+Errors are `{ statusCode, message, error }`:
 
 | Code | Meaning |
 | --- | --- |
-| 400 | Malformed/unsupported input or extra fields, including changedBy |
-| 401 | Missing/unknown actor |
-| 403 | Known actor cannot perform the action: for example, a requester changing status or claiming, an unassigned handler changing a visible request's status, or a handler submitting a request or calling intake |
-| 404 | Request missing or not visible to the actor |
-| 409 | Invalid lifecycle transition, already assigned claim, or an update based on old data |
-| 503 | Saving to the database failed; no success response |
-| 502 | Intake provider/configuration failure; stable message, no database changes |
+| 400 | Invalid input or extra fields (such as `changedBy`) |
+| 401 | Missing or unknown account |
+| 403 | Known account not allowed (for example an employee changing status, a handler who is not the assignee, a handler submitting or using AI intake) |
+| 404 | Ticket missing, or not visible to this account |
+| 409 | Invalid status move, already claimed, reply to a Done ticket, or a change based on old data |
+| 429 | Rate limit: over 10 AI suggestions a minute per client (300 a day in total), or over 60 saves a minute per client |
+| 502 | AI provider or configuration failure; one stable message; nothing saved |
+| 503 | Database save failed; no success response |
 
-Visibility is checked before claim, reply and status permissions. A handler trying to access another department's request normally receives 404; forbidden actions on a visible request receive 403. Only the assigned handler can change status. The requester, handlers in the request's department and the assigned handler can read and reply; only a handler in that department can claim an unassigned request. Direct access retains the assigned-handler exception even if its department differs, while the handler list is filtered strictly by department. Current submission and claim routes do not create such cross-department assignments.
+Rules: visibility is checked first, so another department's ticket returns 404, and a forbidden action on a visible ticket returns 403. The employee who sent it, handlers of its department and the assigned handler can read it and reply while it is not Done. Only a handler of that department can claim an unassigned ticket. Only the assigned handler can change its status.
 
-Intake POST accepts only `{ "text": "your issue" }`, text that is not blank and is no longer than 4000 characters. Its response is `{ suggestedDepartment, summary, missingInformation, suggestedNextStep }`. Unknown/missing actors receive 401; handlers receive 403 for intake; invalid input receives 400. All provider/configuration failures receive 502 with **Could not produce an intake suggestion right now. Please try again.**
-
-For manual status checks, reset the database and start the backend first. In another PowerShell 7 terminal, run these in order:
+Manual checks in PowerShell 7 (after `npm run db:reset`, with the backend running):
 
 ```powershell
 $base = 'http://127.0.0.1:3000'
@@ -160,83 +236,64 @@ $requester = @{ 'X-Actor-Id' = 'employee-001' }
 
 Invoke-RestMethod "$base/requests/REQ-1001" -Headers $handler
 
-# Requester denied: 403
+# Employee denied: 403
 Invoke-WebRequest "$base/requests/REQ-1001/status" -Method Patch -Headers $requester -ContentType 'application/json' -Body '{"status":"IN_PROGRESS"}' -SkipHttpErrorCheck
 
-# Handler attempts NEW -> DONE: 409
+# NEW -> DONE skips a step: 409
 Invoke-WebRequest "$base/requests/REQ-1001/status" -Method Patch -Headers $handler -ContentType 'application/json' -Body '{"status":"DONE"}' -SkipHttpErrorCheck
 
-# Client-supplied changedBy is rejected: 400
+# changedBy from the client is rejected: 400
 Invoke-WebRequest "$base/requests/REQ-1001/status" -Method Patch -Headers $handler -ContentType 'application/json' -Body '{"status":"IN_PROGRESS","changedBy":"handler-001"}' -SkipHttpErrorCheck
 
-# Still NEW, with the original history only
+# Still NEW, original history only
 Invoke-RestMethod "$base/requests/REQ-1001" -Headers $handler
 
-# Assigned handler succeeds: 200, IN_PROGRESS and two events
+# Assigned handler succeeds: 200, IN_PROGRESS, two history entries
 Invoke-RestMethod "$base/requests/REQ-1001/status" -Method Patch -Headers $handler -ContentType 'application/json' -Body '{"status":"IN_PROGRESS"}'
 ```
 
-For restart proof: after that update, stop the backend with Ctrl+C and run `npm start` again in its terminal. Repeat the GET above. It must still show IN_PROGRESS and the same two events. The complete records were compared to check this sequence, including event IDs and timestamps.
+**Restart proof:** stop the backend (Ctrl+C), start it again and repeat the GET. It still shows IN_PROGRESS and both history entries, because the data is in PostgreSQL, not in the app.
 
-### Expected save failure
+**Save failure:** the API returns 503 (for example "Could not save the status. Please try again.") and logs the ticket and database error code. The screen keeps the last confirmed state and lets the user retry; if the response was lost, it asks the user to refresh, because it cannot know whether the save happened.
 
-If saving to the database fails, the API returns 503: **Could not save the status. Please try again.** React keeps its last confirmed status/history, removes the old success message, and lets the user retry. If the HTTP response is lost, the screen asks the user to refresh because it cannot tell whether the save succeeded.
+## Automated evidence
 
-The backend test replaces the save operation with one that always throws an error. There is no failure-toggle endpoint or SQLite-lock setup. A separate manual browser check on 2026-09-14 verified the 503 message and retry behavior. The current E2E suite uses real requests for successful workflows and checks that employees have no status button. HTTP/backend tests prove the 403 denial; the current browser suite does not trigger that denial or a save failure.
+| Command | Where | What it covers |
+| --- | --- | --- |
+| `npm test` | `backend/` | **27 passing tests** (counting parent tests): status rules and history, permission policy (other employee denied, second handler limited, Done tickets closed, status notes), input validation, AI context and output limits, AI failures and retry, AI rate limit, health states and safe output, ticket numbers, and no data changes during AI calls. |
+| `npm run test:integration` | `backend/` | **1 test**: status and history saved in an isolated PostgreSQL schema and read back through a second connection; reset removes replies before tickets. |
+| `npm run eval:ai` | `backend/` | **8 offline cases** through the real adapter and checks, no key or network. Proves the code's handling, not the model's quality. |
+| `npm run eval:ai:live` | `backend/` | 6 cases against the real model (twice each) plus 2 controlled failures. Needs a key; uses free quota. |
+| `npm run test:e2e` | `frontend/` | **3 browser journeys** in Chromium with the real backend and database (only the AI network call is replaced): handler update survives reload; AI draft -> HR inbox -> claim -> reply -> Done with a note -> employee sees it; AI outage -> manual submit -> other employee denied -> second IT handler cannot change status. Uses ports 3001 and 5174. |
+| `npm run verify:release` | root | Everything above except the live eval, in order, stopping at the first failure. |
 
-## Automated evidence and builds
+Database tests create a temporary schema (`test_<random>`) in the database from `TEST_DATABASE_URL`, `DIRECT_URL` or `DATABASE_URL` (first one set), then drop it. They never read or change the main data.
 
-From `backend/`:
+### Verification history
 
-```powershell
-npm test
-npm run test:integration
-```
+- **2026-09-26, Neon PostgreSQL `development` branch:** release gate 6/6: both builds, 27/27 backend tests, 1/1 integration, 8/8 offline evals, 3/3 browser journeys; no test schemas left behind. The first gate run stopped with HOLD on a real test-isolation bug, now fixed ([details](docs/week5-release-operations.md#incident-caught-by-the-gate-ticket-numbers-leaking-between-tests)). Production-mode smoke check 7/7 locally.
+- **2026-09-23, SQLite:** build, 23 backend tests, 1 integration test, 2 browser journeys and 8/8 offline evals passed. Live AI evaluation passed 8/8 once and 7/8 the next time (one timeout); live Gemini availability is intermittent. Earlier results: [Week 4 production AI](docs/week4-production-ai.md).
 
-- `npm test`: **23 passing tests**, including parent tests. Keeps the original status and history checks, and adds checks for intake input, permissions, sending only the needed context, a bounded retry after provider HTTP 503, simulated provider failures, and ServiceRequest/StatusEvent snapshots that show those records stayed unchanged during suggestion calls. Those snapshots do not include RequestComment.
-- `npm run test:integration`: **1 passing test**, using the real service, Prisma and a separate SQLite test database. A second Prisma client reads the saved status and history again. The test also checks that a rejected status change leaves the data unchanged and that reset removes replies before deleting requests.
+## Production configuration
 
-From `frontend/` (backend dependencies must already be installed):
+`npm run build` (root) installs and builds both apps; `npm start` (root) runs the built backend, which also serves `frontend/dist`. Variables: `DATABASE_URL`, `DIRECT_URL`, `GEMINI_API_KEY`, optional `GEMINI_MODEL`, `PORT`, `HOST` (default `0.0.0.0` on Render, otherwise `127.0.0.1`), `TRUST_PROXY` (proxy hops, so rate limits see the real visitor) and the three rate limits in `backend/.env.example`. Which ones are secret: [Week 5, section 3](docs/week5-release-operations.md#3-configuration-and-secrets). Render build and start commands: [Week 5, section 6](docs/week5-release-operations.md#6-deployment-design).
 
-```powershell
-npx playwright install chromium
-npm run test:e2e
-```
+## Troubleshooting
 
-**2 passing browser journeys:** existing request -> employee has no status button -> assigned-handler update -> history -> reload; and AI suggestion -> submit to HR -> HR inbox -> claim -> reply -> IN_PROGRESS -> DONE -> employee sees the saved result. The second journey checks that IT cannot see the HR request and captures desktop/mobile views. It replaces only the connection to the external provider; it does not call live Gemini. The current browser suite does not test provider failure/retry or clearing suggestions after an input edit. The command builds the backend, starts the actual Nest app and Vite on ports 3001/5174, and closes them afterward. Those ports must be free. The normal demo can stay on 3000/5173.
+- **`DATABASE_URL is not set`:** create `backend/.env` from `.env.example`.
+- **Missing tables:** run `npm run db:setup` in `backend/`.
+- **Cannot GET /** on port 3000: the frontend is not built. Run `npm run build` in `frontend/`, or use Vite on 5173.
+- **Live app slow to open:** the free Render server was asleep; wait up to a minute.
+- **AI suggestion unavailable:** check the key in `.env` (or Render) and the free-tier quota, then restart. `/health` shows `triageModel`; the log shows the reason. Manual submission still works.
+- **401 when opening an API URL in the browser:** the browser does not send the account header. Use the app, the smoke check or the commands above.
+- **Could not load the request:** check the backend is running, then click **Refresh**.
+- **409 when repeating an update:** it already moved on, or the move is not allowed. Refresh, or reset the demo.
+- **Port in use:** stop the earlier instance. E2E tests need ports 3001 and 5174 free.
+- **Windows reinstall fails with a Prisma DLL error:** stop running backend processes first; they hold the Prisma engine file open.
 
-Automated database tests create a fresh SQLite database in its own temporary folder, then close the connections and remove it. They do not reset development data. Playwright artifacts, dependencies, and build output are ignored by Git.
+## Scope and known limits
 
-To build without starting servers, run this from each of `backend/` and `frontend/`:
-
-```powershell
-npm run build
-```
-
-Latest executed verification, 2026-09-23: backend build and 23 tests, one real-database integration test, two browser journeys and 8/8 offline eval cases passed. A separate database command check confirmed setup and reset after a saved reply. With `gemini-3.1-flash-lite`, one full live evaluation passed 8/8 and the next passed 7/8 because a real case timed out. Earlier same-day runs with `gemini-3.5-flash-lite` also had HTTP 503 and timeouts, even with one bounded retry. Live service availability is still intermittent. Earlier results are retained in [Week 4 production AI](docs/week4-production-ai.md). Stop backend processes before reinstalling dependencies on Windows, since their Prisma DLL may be in use.
-
-## Troubleshooting and scope
-
-- **Cannot GET /** on port 3000: this is the API. Open the React app on 5173.
-- **AI suggestion unavailable:** check backend `.env` has your key, restart the backend, and confirm model access/free-tier quota. The app deliberately hides provider details. Core tracking still works.
-- **401 opening an API URL directly:** navigation does not send the actor header. Use React or the HTTP commands above.
-- **Could not load the request:** check that the backend is running, then use **Refresh request**.
-- **409 repeating an update:** it already advanced or the transition is invalid. Refresh, or explicitly reset the demo.
-- **Missing tables:** run `npm run db:setup` from `backend/`.
-- **Port in use:** stop the previous instance using that port before starting another.
-
-Prisma is kept at version 6.19.3 to work with the existing CommonJS backend. The prior Week 3 audit reported six high-severity findings in the Nest/Multer and Prisma configuration dependency chains and zero for the frontend; this was not re-audited during Week 4. These problems are still unresolved. No major-version updates were forced. No upload endpoint or untrusted Prisma configuration is used by this slice.
-
-No production authentication, live organization directory, deployment, or new infrastructure is included. Gemini is the one external runtime integration. Department memberships use fixed assignments for the demo.
-
-## Project documents
-
-- [Department workflow](docs/department-workflow.md): submission, inboxes, claims, replies and permissions.
-- [Week 4 production AI](docs/week4-production-ai.md): intake contract, provider setup, assumptions, evals and evidence.
-- [Week 3 delivery](docs/week3-full-stack-delivery.md): slice, boundaries, contract, evidence, and assumptions.
-- [Product specification](docs/product-spec.md), [architecture](docs/architecture.md), [data model](docs/data-model.md), and [ADR-001](docs/decisions/ADR-001.md): Week 1 foundation; product, architecture and data-model docs include explicit Week 4 amendments.
-- [Week 2 workflow](docs/week2-agentic-workflow.md): preserved historical implementation and verification. Its in-memory and changedBy examples describe v0.2; this README describes v0.4.
-
-### Updated intake interaction
-
-Enter the issue first, then request an AI suggestion and review the draft beside it (below it on mobile). A manual department preference before generation is optional and collapsed under "Already know the department?". Once a suggestion is ready, you can change the department in the review panel. Missing details direct the employee back to the issue text for another suggestion. **Copy draft** only copies text. **Submit to [department]** saves the request in that department's inbox. The employee can follow replies and status in **My requests**; a department handler can claim and work on it. Switching workspace views keeps an unsubmitted draft in memory. Switching actors clears it.
+- **Demo identity, not login** ([ADR-003](docs/decisions/ADR-003.md)). No organization directory; department memberships are fixed in code.
+- **Free hosting** ([ADR-002](docs/decisions/ADR-002.md)): cold starts, compute and storage limits, no uptime promise.
+- **Not built (deferred):** cancelling or rejecting tickets, transfers between departments, reopening, priorities and due dates, attachments, email notifications. See the [product spec's Week 5 amendment](docs/product-spec.md#week-5-amendment---final-scope-and-answers-to-open-questions).
+- **Dependencies:** Prisma stays at 6.19.3 for the CommonJS backend. The Week 3 audit found six high-severity issues in indirect Nest/Multer and Prisma configuration dependencies (none in the frontend). They are not fixed and were not re-checked for this release. No upload endpoint or untrusted Prisma configuration is used.
