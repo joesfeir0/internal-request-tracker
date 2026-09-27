@@ -80,7 +80,8 @@ The gate proves the **candidate**. It cannot prove the running target (a green g
 | --- | --- | --- |
 | 2026-09-26 | `abfd064` + uncommitted changes (local, Neon `development`) | **HOLD** at step 3: two tests expected ticket `REQ-1006` and received `REQ-1015` and `REQ-1017`. See the incident below. |
 | 2026-09-26 | same, after the fix | **All 6 passed**: builds; 27/27 backend tests; 1/1 integration; 8/8 offline evals; 3/3 browser journeys. Not a release candidate because the tree was uncommitted. |
-| Pending | Final committed SHA | Local gate with `--require-clean`, and the first remote GitHub Actions run |
+| 2026-09-26 | `4eb0043` (clean tree), GitHub Actions on `ubuntu-latest`, PostgreSQL 17 service | **All 6 passed** in 1 min 28 s: builds; 27/27 backend tests; 1/1 integration; 8/8 offline evals; 3/3 browser journeys. [Run 36258470225](https://github.com/joesfeir0/internal-request-tracker/actions/runs/36258470225). |
+| Pending | Final submitted SHA | Gate on the exact commit that is deployed and submitted |
 
 ### Incident caught by the gate: ticket numbers leaking between tests
 
@@ -99,8 +100,8 @@ push -> checkout -> Node 24 (from `.nvmrc`) -> `npm ci` backend and frontend -> 
 
 | Proven | Not yet claimed |
 | --- | --- |
-| The workflow file exists and runs the same command as the local gate | A remote GitHub Actions run (**Pending** until the first push) |
-| The same sequence passed locally on Node 24 (Windows) | A green run on `ubuntu-latest` |
+| The workflow runs the same command as the local gate | A green run for the final submitted SHA (**Pending**) |
+| The same sequence passed locally on Node 24 (Windows) and remotely on `ubuntu-latest` for `4eb0043` | |
 
 ## 6. Deployment design
 
@@ -229,8 +230,8 @@ Evidence rows from Day 15 (no score, no percentage). A single missing or red row
 
 | Evidence row | GO needs | Current evidence (2026-09-26) | Row |
 | --- | --- | --- | --- |
-| Release identity | Exact committed candidate, clean tree | Changes not yet committed | HOLD |
-| Automated confidence | Required checks pass | Local gate 6/6; remote CI pending | Pending |
+| Release identity | Exact committed candidate, clean tree | `4eb0043` committed, clean; not yet deployed | Pending |
+| Automated confidence | Required checks pass | Local gate 6/6; GitHub Actions 6/6 for `4eb0043` | GREEN (recheck on final SHA) |
 | Configuration | Expected and safe | Documented; production values not yet set | Pending |
 | Health | `ok` on the target | `ok` locally; target not deployed | Pending |
 | Critical smoke | Critical path works on the target | 7/7 locally; target not deployed | Pending |
@@ -253,7 +254,7 @@ Evidence rows from Day 15 (no score, no percentage). A single missing or red row
 - [x] Week 1-5 documents present and updated where implementation changed a decision
 - [x] Safe environment template (`backend/.env.example`) and no secrets in Git
 - [x] Release gate, CI workflow, health endpoint, safe logs, smoke check
-- [ ] Commit and push; first green remote CI run
+- [x] Commit and push; first green remote CI run (`4eb0043`)
 - [ ] Deploy to Render with Neon `production`; record live URL and deployed commit
 - [ ] Monitor configured; live failure -> detect -> recover -> verify drill, repeated
 - [ ] Final smoke on the live URL; GO recorded above with the submitted SHA

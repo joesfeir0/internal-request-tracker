@@ -6,7 +6,7 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "build": "npm --prefix backend ci && npm --prefix backend run build && npm --prefix frontend ci && npm --prefix frontend run build",
+    "build": "npm --prefix backend ci --include=dev && npm --prefix backend run build && npm --prefix frontend ci --include=dev && npm --prefix frontend run build",
     "start": "npm --prefix backend run start:prod",
     "verify:release": "node scripts/verify-release.mjs",
     "smoke": "node scripts/smoke.mjs"
