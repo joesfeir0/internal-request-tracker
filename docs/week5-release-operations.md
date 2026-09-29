@@ -12,7 +12,7 @@
 | How is the running app proven? | `GET /health` (database and AI checked separately) and `npm run smoke -- <url>` (read-only critical-path checks). |
 | What can fail while the app still runs? | Gemini (key, quota, outage) -> **degraded**, manual submission still works. The database -> **unhealthy**, core journey blocked. |
 | How is it recovered? | Restore the failed dependency or configuration, then prove health **and** the user path again. Recovery is not rollback. |
-| Current decision | **GO** for code candidate `41d00c1`, live at https://operations-hub-3j52.onrender.com, after CI, live smoke and a live failure/recovery drill (see [Release decision](#release-decision)). |
+| Current decision | **GO** for `c7114ce` (the code of `41d00c1` plus documentation), live at https://operations-hub-3j52.onrender.com, after CI, live smoke and a live failure/recovery drill (see [Release decision](#release-decision)). |
 
 ## 1. Release identity (Day 13 / Day 15)
 
@@ -85,7 +85,7 @@ The gate proves the **candidate**. It cannot prove the running target (a green g
 | 2026-09-26 | `4eb0043` (clean tree), GitHub Actions on `ubuntu-latest`, PostgreSQL 17 service | **All 6 passed** in 1 min 28 s: builds; 27/27 backend tests; 1/1 integration; 8/8 offline evals; 3/3 browser journeys. [Run 36258470225](https://github.com/joesfeir0/internal-request-tracker/actions/runs/36258470225). |
 | 2026-09-27 | `41d00c1` (clean tree), GitHub Actions | **All 6 passed** in 1 min 18 s, with the CI actions on `v5` (Node 20 warning gone). [Run 36318974101](https://github.com/joesfeir0/internal-request-tracker/actions/runs/36318974101). This is the commit deployed to Render. |
 | 2026-09-29 | `41d00c1` + uncommitted documentation (local, Neon `development`) | **HOLD** at step 3: 7 of 11 backend tests went over Prisma's 5-second transaction limit (for example "5288 ms passed"). Hypothesis tested: from the laptop, one database round trip to Neon (US East) took 220-450 ms, and a transaction with 10 simple queries took 4.4 s. Cause: network distance between the laptop and the database, not the code. The same commit is green in CI, where the database runs next to the tests, and production runs in the same region as Neon. No code was changed for this. |
-| Pending | Final submitted SHA | Gate on the exact commit that is submitted (documentation-only on top of `41d00c1`) |
+| 2026-09-29 | `c7114ce` (clean tree, documentation and evidence only on top of `41d00c1`), GitHub Actions | **All 6 passed** in 1 min 28 s: builds; 27/27 backend tests; 1/1 integration; 8/8 offline evals; 3/3 browser journeys. [Run 36622102256](https://github.com/joesfeir0/internal-request-tracker/actions/runs/36622102256). The backend tests took 8 s here against 147 s from the laptop the same day, which supports the latency explanation above. |
 
 ### Incident caught by the gate: ticket numbers leaking between tests
 
@@ -104,8 +104,8 @@ push -> checkout -> Node 24 (from `.nvmrc`) -> `npm ci` backend and frontend -> 
 
 | Proven | Not yet claimed |
 | --- | --- |
-| The workflow runs the same command as the local gate | A green run for the final submitted SHA (**Pending**) |
-| The same sequence passed locally on Node 24 (Windows) and remotely on `ubuntu-latest` for `4eb0043` and `41d00c1` | |
+| The workflow runs the same command as the local gate | A green run for the documentation-only commit that records this line (a commit cannot contain its own result; it is checked after the push) |
+| The same sequence passed locally on Node 24 (Windows) and remotely on `ubuntu-latest` for `4eb0043`, `41d00c1` and `c7114ce` | |
 
 ## 6. Deployment design
 
@@ -140,7 +140,7 @@ Why this shape: one service keeps the frontend and API on one origin (no CORS, n
 | --- | --- |
 | Live URL | https://operations-hub-3j52.onrender.com |
 | First deploy | Commit `41d00c1`; build 46.6 s; `Migrations applied; data unchanged.`; startup log `release 41d00c15fe3a`; Render's `/health/live` checks return 200 |
-| Deployed commit reported by `/health` | `41d00c15fe3a` |
+| Deployed commit reported by `/health` | `41d00c15fe3a`; later `c7114ce8713e` (2026-09-29 19:52 UTC, automatic deploy about 1.5 minutes after the push) |
 | Production database | Neon branch `production`. It started empty (live smoke showed 0 tickets, which also proved it is not the development database). The five demo tickets were added once from the owner's PC with `npm run db:setup` (not part of any deploy). |
 | Data survives a redeploy/restart | Yes. Ticket `REQ-1007`, created at 13:50 UTC, was still present with its history and note after the recovery redeploy and after drill cycles 2 and 3 (checked 14:09 and 14:18 UTC). Every redeploy logged `Migrations applied; data unchanged.` |
 
@@ -266,7 +266,8 @@ Local rehearsal already proven by automated tests (`backend/test/health.test.cjs
 | 2026-09-27 13:46 UTC | Live (`41d00c15fe3a`), drill baseline | **7/7 passed**, AI `IT` in 0.97 s |
 | 2026-09-27 14:09 UTC | Live, after drill cycle 1 recovery | **7/7 passed**, AI `IT` in 1.4 s |
 | 2026-09-27 14:18 UTC | Live, after drill cycles 2 and 3 | **7/7 passed**, AI `IT` in 0.98 s, 7 tickets |
-| Pending | Live, final submitted SHA | |
+| 2026-09-29 19:28 UTC | Live (`41d00c15fe3a`), after the AI failures that day | **7/7 passed**, AI `IT` in 2.6 s, 8 tickets |
+| 2026-09-29 19:52 UTC | Live (`c7114ce8713e`), final candidate | **7/7 passed**: health `ok` (database ok, triageModel ok), frontend 200, 6 accounts, 8 requests, 404, 401, AI `IT` in 2.8 s |
 
 ## Release decision
 
@@ -283,9 +284,11 @@ Evidence rows from Day 15 (no score, no percentage). A single missing or red row
 
 **Decision: GO** for code candidate `41d00c1` on https://operations-hub-3j52.onrender.com.
 
+**Final candidate `c7114ce` (2026-09-29).** Same code as `41d00c1`, plus documentation and evidence only. Release identity: committed, clean, live `/health` reports `c7114ce8713e`. Automated confidence: GitHub Actions 6/6. Configuration: unchanged. Health: `ok`. Critical smoke: 7/7 at 19:52 UTC. Recovery readiness: unchanged from the drill, and confirmed again by the real AI failures. **Decision: GO.**
+
 **The same code can deserve HOLD.** While the drill key was broken (13:50-14:09 UTC on 2026-09-27) and during the real AI failures on 2026-09-28 and 2026-09-29, the Health row was `degraded`, so the decision for this same commit was HOLD. It returned to GO only after fresh evidence: health `ok` again and, after the drill, smoke 7/7. Nothing about the code changed; the evidence did.
 
-GO does not mean zero risk (see below). The submission commit adds only documentation and evidence on top of `41d00c1`. Before submitting: CI must be green on that exact commit, `/health` must report it as the live release, and a final smoke must pass. Then automatic deploys are switched off.
+GO does not mean zero risk (see below). The submitted commit is the one that records this section: it changes only this file and the README on top of `c7114ce`. Automatic deploys were switched off before it was pushed; it is deployed by hand, and its CI run, live `/health` release and smoke check are verified after the push and before the submission email.
 
 ## Remaining risks (accepted for the demo)
 
@@ -307,7 +310,7 @@ GO does not mean zero risk (see below). The submission commit adds only document
 - [x] Deploy to Render with Neon `production`; live URL and deployed commit recorded (`41d00c1`)
 - [x] Monitors configured; live failure -> detect -> recover -> verify drill (cycle 1 fully recorded, two more cycles by the owner)
 - [x] GO recorded for `41d00c1`
-- [ ] Push the documentation commit; CI green; `/health` reports that commit; final smoke 7/7
+- [x] Push the documentation commit (`c7114ce`); CI green; `/health` reports that commit; final smoke 7/7 (2026-09-29)
 - [x] Monitor B back to a 30-minute interval (2026-09-29)
 - [ ] Automatic deploys off so the live app stays on the submitted SHA
 
@@ -319,7 +322,7 @@ Email subject: `AI Academy 2026 - Final Capstone Submission - Joseph Sfeir`. The
 | --- | --- |
 | Full Name | Joseph Sfeir |
 | Repository URL | https://github.com/joesfeir0/internal-request-tracker |
-| Final Commit SHA | Pending (the documentation commit, once CI is green and it is live) |
+| Final Commit SHA | The commit that adds this line, documentation only on top of `c7114ce` (a commit cannot contain its own SHA). It is named in the submission email after its CI run, live `/health` release and smoke check pass. |
 | Live App URL | https://operations-hub-3j52.onrender.com |
 | Demo Access / Roles | No login: open the live app and pick an account in the **Testing workspace** menu. Maya Haddad (`employee-001`) and Karim Nassar (`employee-002`): employees, submit and follow only their own requests. Rami Khoury (`handler-001`) and Lina Farah (`handler-004`): IT handlers (only the assigned handler changes status). Nour Saleh (`handler-002`): HR handler. Omar Aoun (`handler-003`): Finance handler. Permissions are checked on the server for every request. Details: README [Demo access and roles](../README.md#demo-access-and-roles). |
 

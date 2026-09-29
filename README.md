@@ -273,6 +273,7 @@ Database tests create a temporary schema (`test_<random>`) in the database from 
 
 ### Verification history
 
+- **2026-09-29, final candidate `c7114ce`** (code of `41d00c1` plus documentation): GitHub Actions release gate 6/6; live `/health` reports `c7114ce8713e` and `ok`; final live smoke 7/7 at 19:52 UTC. Decision **GO** ([details](docs/week5-release-operations.md#release-decision)).
 - **2026-09-29:** Gemini returned HTTP 503 again (15:47-15:49 and 18:15 UTC); status `degraded`, database `ok`, no action taken; live smoke 7/7 again at 19:28 UTC. A local release gate stopped at the backend tests because each database round trip from the laptop to Neon (US East) took 220-450 ms, pushing transactions over Prisma's 5 s limit; the same code is green in CI ([details](docs/week5-release-operations.md#gate-results)).
 - **2026-09-28, live app (`41d00c1`):** two real AI-provider failures (a timeout, then HTTP 503) with no change by the owner. Health showed `degraded` with the database `ok`, the log gave the reason, the monitor emailed the owner, and both recovered on their own within about 5 and 15 minutes.
 - **2026-09-27, live app (`41d00c1`):** GitHub Actions release gate 6/6. Live smoke 7/7 three times. Live failure/recovery drill: AI key broken -> `degraded`, log reason and monitor alert -> manual submission still worked -> key restored -> `ok` again (cycle 1 fully recorded; repeated twice more), no data lost. Decision **GO** ([details](docs/week5-release-operations.md#release-decision)).
