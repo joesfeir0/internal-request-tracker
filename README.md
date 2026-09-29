@@ -4,7 +4,7 @@
 
 Operations Hub lets employees send internal service requests to IT, HR or Finance and follow them until they are done. **AI-assisted Request Intake** helps the employee describe the problem and suggests a department; a person always makes the final choice. Department handlers claim requests, reply, and move them through `NEW -> IN_PROGRESS -> DONE`.
 
-Stack: React -> HTTP -> NestJS -> Prisma -> PostgreSQL, with Google Gemini for AI suggestions. Built to run for free on Render (app) and Neon (database).
+Stack: React -> HTTP -> NestJS -> Prisma -> PostgreSQL, with Google Gemini for AI suggestions. Runs for free on Render (app) and Neon (database).
 
 This README is the handoff:
 
@@ -17,7 +17,9 @@ Reference details come after these four sections.
 
 ## 1. Live app
 
-**Live URL: pending, added after deployment** (a Render `onrender.com` address). The first visit after a quiet period can take up to a minute, because the free server sleeps when unused.
+**Live app: https://operations-hub-3j52.onrender.com**
+
+It runs on free hosting. A monitor keeps it awake, but if the first visit is slow, wait up to a minute for the server to wake.
 
 ### What it does
 
@@ -127,8 +129,8 @@ The release gate runs: backend build -> frontend type-check and build -> backend
 | **Is it healthy?** | `GET /health` returns `ok`, `degraded` (AI down; manual flow still works) or `unhealthy` (database down; HTTP 503), with separate `database` and `triageModel` checks and the running `release` (commit). |
 | **Why did it fail?** | Logs (Render **Logs** tab, or the backend terminal): one line per API call, plus safe reasons such as `AI intake failed: Provider unavailable (HTTP 429)`. Never ticket text, prompts or keys. |
 | **Does the critical path work?** | `npm run smoke -- <url>`: read-only checks of health, frontend, accounts, tracking, a 404 boundary, a 401 boundary and one AI suggestion (`--skip-ai` skips it). |
-| **Monitoring** | An uptime monitor calls `/health` on a fixed interval and alerts after repeated non-`ok` results (set up with the deployment). |
-| **Failure -> recovery** | Break one dependency (for example an invalid `GEMINI_API_KEY` in Render), see `degraded` and the log reason, confirm manual submission still works, restore the key, then prove `/health` is `ok` and the smoke check passes again. Recovery is not rollback. |
+| **Monitoring** | Two free UptimeRobot monitors email the owner: one checks that the site answers (every 5 min), the other that `/health` contains `"status":"ok"` (every 30 min), so it also catches `degraded`. On 2026-09-28 it caught two real AI-provider failures ([details](docs/week5-release-operations.md#9-monitoring-and-alerting)). |
+| **Failure -> recovery** | Break one dependency (for example an invalid `GEMINI_API_KEY` in Render), see `degraded` and the log reason, confirm manual submission still works, restore the key, then prove `/health` is `ok` and the smoke check passes again. Recovery is not rollback. Done live on 2026-09-27 ([results](docs/week5-release-operations.md#live-drill-results-2026-09-27-utc-release-41d00c15fe3a-throughout)). |
 | **Reset demo data** | `npm run db:reset` in `backend/` deletes all tickets and recreates the five demo ones. It refuses a remote database unless run as `node scripts/database.cjs reset --confirm-remote`. Never part of a deploy. |
 
 Deployment settings, the full drill and all recorded evidence: [Week 5 release operations](docs/week5-release-operations.md).
@@ -137,7 +139,7 @@ Deployment settings, the full drill and all recorded evidence: [Week 5 release o
 
 | Week | Topic | Documents |
 | --- | --- | --- |
-| 1 | Design: product, architecture, data model, decisions | [Product spec](docs/product-spec.md), [architecture](docs/architecture.md) ([diagram](docs/architectureDiagram.png)), [data model](docs/data-model.md), [ADR-001 status history](docs/decisions/ADR-001.md) |
+| 1 | Design: product, architecture, data model, decisions | [Product spec](docs/product-spec.md), [architecture](docs/architecture.md) ([Week 1 diagram](docs/architectureDiagram.png); the current deployed diagram is in its [Week 5 amendment](docs/architecture.md#week-5-amendment---deployed-system)), [data model](docs/data-model.md), [ADR-001 status history](docs/decisions/ADR-001.md) |
 | 2 | Engineering ownership: lifecycle rules, valid and invalid behavior | [Week 2 agentic workflow](docs/week2-agentic-workflow.md) |
 | 3 | Full stack: React + NestJS + database, permissions, E2E | [Week 3 full-stack delivery](docs/week3-full-stack-delivery.md) |
 | 4 | Production AI: bounded context, AI is not authority, failure safety, evals | [Week 4 production AI](docs/week4-production-ai.md), [department workflow and permissions](docs/department-workflow.md) |
@@ -271,6 +273,9 @@ Database tests create a temporary schema (`test_<random>`) in the database from 
 
 ### Verification history
 
+- **2026-09-29:** Gemini returned HTTP 503 again (15:47-15:49 and 18:15 UTC); status `degraded`, database `ok`, no action taken; live smoke 7/7 again at 19:28 UTC. A local release gate stopped at the backend tests because each database round trip from the laptop to Neon (US East) took 220-450 ms, pushing transactions over Prisma's 5 s limit; the same code is green in CI ([details](docs/week5-release-operations.md#gate-results)).
+- **2026-09-28, live app (`41d00c1`):** two real AI-provider failures (a timeout, then HTTP 503) with no change by the owner. Health showed `degraded` with the database `ok`, the log gave the reason, the monitor emailed the owner, and both recovered on their own within about 5 and 15 minutes.
+- **2026-09-27, live app (`41d00c1`):** GitHub Actions release gate 6/6. Live smoke 7/7 three times. Live failure/recovery drill: AI key broken -> `degraded`, log reason and monitor alert -> manual submission still worked -> key restored -> `ok` again (cycle 1 fully recorded; repeated twice more), no data lost. Decision **GO** ([details](docs/week5-release-operations.md#release-decision)).
 - **2026-09-26, Neon PostgreSQL `development` branch:** release gate 6/6: both builds, 27/27 backend tests, 1/1 integration, 8/8 offline evals, 3/3 browser journeys; no test schemas left behind. The first gate run stopped with HOLD on a real test-isolation bug, now fixed ([details](docs/week5-release-operations.md#incident-caught-by-the-gate-ticket-numbers-leaking-between-tests)). Production-mode smoke check 7/7 locally.
 - **2026-09-23, SQLite:** build, 23 backend tests, 1 integration test, 2 browser journeys and 8/8 offline evals passed. Live AI evaluation passed 8/8 once and 7/8 the next time (one timeout); live Gemini availability is intermittent. Earlier results: [Week 4 production AI](docs/week4-production-ai.md).
 
@@ -296,4 +301,4 @@ Database tests create a temporary schema (`test_<random>`) in the database from 
 - **Demo identity, not login** ([ADR-003](docs/decisions/ADR-003.md)). No organization directory; department memberships are fixed in code.
 - **Free hosting** ([ADR-002](docs/decisions/ADR-002.md)): cold starts, compute and storage limits, no uptime promise.
 - **Not built (deferred):** cancelling or rejecting tickets, transfers between departments, reopening, priorities and due dates, attachments, email notifications. See the [product spec's Week 5 amendment](docs/product-spec.md#week-5-amendment---final-scope-and-answers-to-open-questions).
-- **Dependencies:** Prisma stays at 6.19.3 for the CommonJS backend. The Week 3 audit found six high-severity issues in indirect Nest/Multer and Prisma configuration dependencies (none in the frontend). They are not fixed and were not re-checked for this release. No upload endpoint or untrusted Prisma configuration is used.
+- **Dependencies:** Prisma stays at 6.19.3 for the CommonJS backend. `npm audit` on 2026-09-29 reports 5 high-severity findings in the backend (Nest/Multer and Prisma/deepmerge-ts chains) and none in the frontend. They are not fixed for this release ([Week 5 remaining risks](docs/week5-release-operations.md#remaining-risks-accepted-for-the-demo)). No upload endpoint or untrusted Prisma configuration is used.

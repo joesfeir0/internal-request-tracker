@@ -191,9 +191,9 @@ The nine planning answers above were implemented or proven in Week 5. Details: [
 | 3. Which dependency can fail while the process runs? | Gemini (as planned) and PostgreSQL on Neon (replacing the SQLite file) |
 | 4. Which signal reveals it? | `/health` shows `triageModel: unavailable` (degraded) or `database: unavailable` (unhealthy, 503) |
 | 5. Which log explains it safely? | **Gap closed:** `AI intake failed: <safe category>` and `<action> failed for <ticket>: <database code>`; no text, key or raw response |
-| 6. Repeated observation | An uptime monitor on `/health` (setup pending with the deployment) |
+| 6. Repeated observation | An UptimeRobot keyword monitor on the live `/health`; on 2026-09-28 it caught two real AI-provider failures (a timeout and HTTP 503) |
 | 7. Condition that needs attention | Repeated non-`ok` health results |
-| 8. Safe recovery path | Restore the key or model in the hosting configuration; manual submission works meanwhile. Rehearsed in automated tests; live drill pending. |
+| 8. Safe recovery path | Restore the key or model in the hosting configuration; manual submission works meanwhile. Rehearsed in automated tests and in a live drill on 2026-09-27. |
 | 9. Proof after recovery | `/health` back to `ok`, `npm run smoke -- <url>`, and the release gate |
 
-The Week 4 AI contract, context rules and evals are unchanged. The AI health probe reuses recent real results so monitoring does not spend the free quota.
+The Week 4 AI contract, context rules and evals are unchanged. The AI health probe reuses recent real results, so monitoring uses only a small part of the free quota.

@@ -1,0 +1,58 @@
+Live failure/recovery drill - raw operator log (UTC). Target: https://operations-hub-3j52.onrender.com, release 41d00c15fe3a.
+Cycle 1 recorded step by step. Cycles 2-3 were run by the owner; only the final state is recorded here.
+
+BASELINE at 2026-09-27T13:46:06Z
+  PASS  Health: HTTP 200 {"database":"ok","triageModel":"ok"} status=ok release=41d00c15fe3a
+  PASS  Frontend served: HTTP 200
+  PASS  Demo accounts: HTTP 200, 6 accounts
+  PASS  Tracking: employee lists own requests: HTTP 200, 6 requests
+  PASS  Boundary: another employee is denied: HTTP 404 (expected 404)
+  PASS  Boundary: unknown actor is rejected: HTTP 401 (expected 401)
+  PASS  AI triage suggestion: HTTP 200 IT (972ms)
+All smoke checks passed.
+
+DETECT at 2026-09-27T13:50:04Z
+GET /health -> {"status":"degraded","checks":{"database":"ok","triageModel":"unavailable"},"release":"41d00c15fe3a","checkedAt":"2026-09-27T13:50:08.908Z"}
+AI suggestion -> HTTP 502 {"message":"Could not produce an intake suggestion right now. Please try again.","error":"Bad Gateway","statusCode":502}
+
+CORE PATH WHILE DEGRADED at 2026-09-27T13:50:23Z
+manual submit (Maya, IT) -> REQ-1007
+claim (Rami) -> HTTP 201
+start progress with note -> IN_PROGRESS history=2 comments=1
+
+DIAGNOSE (Render logs, screenshot)
+13:50:09Z WARN [AiIntake] AI intake failed: Provider unavailable (HTTP 400)
+Hypothesis: the provider rejects the configured key (HTTP 400 = bad request/invalid key). Tested: Render GEMINI_API_KEY = drill-invalid-key -> root cause confirmed. Database ok, code unchanged (release 41d00c15fe3a).
+
+ALERT (UptimeRobot) incident started 13:58:15Z (email: "Keyword Does Not Exist", checked from Ohio, USA): Monitor B 'Keyword on /health' DOWN - Keyword has not been found; incident opened. Monitor A (process) still UP: running != healthy.
+
+RECOVER: real GEMINI_API_KEY restored in Render (configuration only; no code change, no rollback)
+VERIFY at 2026-09-27T14:09:53Z
+GET /health -> {"status":"ok","checks":{"database":"ok","triageModel":"ok"},"release":"41d00c15fe3a","checkedAt":"2026-09-27T14:09:57.537Z"}
+  PASS  Health: HTTP 200 {"database":"ok","triageModel":"ok"} status=ok release=41d00c15fe3a
+  PASS  Frontend served: HTTP 200
+  PASS  Demo accounts: HTTP 200, 6 accounts
+  PASS  Tracking: employee lists own requests: HTTP 200, 7 requests
+  PASS  Boundary: another employee is denied: HTTP 404 (expected 404)
+  PASS  Boundary: unknown actor is rejected: HTTP 401 (expected 401)
+  PASS  AI triage suggestion: HTTP 200 IT (1375ms)
+All smoke checks passed.
+Drill ticket after restart: REQ-1007 IN_PROGRESS handler=handler-001 history=2 comments=1
+
+AFTER CYCLES 2-3 (run by the owner) - verified at 2026-09-27T14:18:40Z
+{"status":"ok","checks":{"database":"ok","triageModel":"ok"},"release":"41d00c15fe3a","checkedAt":"2026-09-27T14:18:44.916Z"}
+  PASS  Health: HTTP 200 {"database":"ok","triageModel":"ok"} status=ok release=41d00c15fe3a
+  PASS  Frontend served: HTTP 200
+  PASS  Demo accounts: HTTP 200, 6 accounts
+  PASS  Tracking: employee lists own requests: HTTP 200, 7 requests
+  PASS  Boundary: another employee is denied: HTTP 404 (expected 404)
+  PASS  Boundary: unknown actor is rejected: HTTP 401 (expected 401)
+  PASS  AI triage suggestion: HTTP 200 IT (980ms)
+All smoke checks passed.
+REQ-1001 NEW - Laptop shuts down during calls since Monday.
+REQ-1002 NEW - Employment letter needed by next Thursday.
+REQ-1003 NEW - Unreimbursed taxi expense from 12 September; receipt available.
+REQ-1004 NEW - Access denied to Marketing shared drive since this morning.
+REQ-1005 NEW - VPN keeps disconnecting when working from home.
+REQ-1006 DONE - hello i need you to fix the ethernet on my pc i don't have any connection lenovo legion 5 and it started today
+REQ-1007 IN_PROGRESS - Release drill: manual submission while AI is down.
